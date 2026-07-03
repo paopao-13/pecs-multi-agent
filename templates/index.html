@@ -1,0 +1,969 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>多智能体协作框架 · LangGraph</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg:        #fbfbfd;
+      --surface:   #ffffff;
+      --surface-2: #f5f5f7;
+      --surface-3: #fafafa;
+      --ink:       #1d1d1f;
+      --ink-2:     #424245;
+      --muted:     #86868b;
+      --muted-2:   #aeaeb2;
+
+      --accent:    #0071e3;
+      --accent-h:  #0077ed;
+      --accent-s:  rgba(0,113,227,0.08);
+
+      --planner:     #0071e3;
+      --executor:    #06b6d4;
+      --critic:      #ff9f0a;
+      --synthesizer: #30d158;
+
+      --success: #30d158;
+      --warning: #ff9f0a;
+      --danger:  #ff3b30;
+
+      --border:   rgba(0,0,0,0.06);
+      --border-2: rgba(0,0,0,0.1);
+      --shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.02);
+      --shadow-md: 0 4px 20px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.03);
+      --shadow-lg: 0 8px 40px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.03);
+
+      --font-display: 'Bricolage Grotesque', 'Hanken Grotesk', sans-serif;
+      --font-body:    'Hanken Grotesk', -apple-system, sans-serif;
+      --font-mono:    'JetBrains Mono', 'SF Mono', monospace;
+
+      --ease: cubic-bezier(0.4,0,0.2,1);
+      --ease-out: cubic-bezier(0.16,1,0.3,1);
+      --ease-spring: cubic-bezier(0.34,1.56,0.64,1);
+
+      --sidebar-w: 240px;
+    }
+
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+    html { scroll-behavior:smooth; -webkit-font-smoothing:antialiased; }
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+      letter-spacing: -0.01em;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* ============================================
+       Background Gradient Mesh
+       ============================================ */
+    .bg-mesh {
+      position: fixed; inset: 0; z-index: -1; overflow: hidden;
+      pointer-events: none;
+    }
+    .bg-mesh .blob {
+      position: absolute; border-radius: 50%;
+      filter: blur(90px); opacity: 0.12;
+    }
+    .bg-mesh .blob-1 {
+      width: 520px; height: 520px; background: #0071e3;
+      top: -120px; right: -80px;
+      animation: float1 22s ease-in-out infinite;
+    }
+    .bg-mesh .blob-2 {
+      width: 420px; height: 420px; background: #06b6d4;
+      bottom: -60px; left: 180px;
+      animation: float2 28s ease-in-out infinite;
+    }
+    .bg-mesh .blob-3 {
+      width: 360px; height: 360px; background: #30d158;
+      top: 35%; left: -120px;
+      animation: float3 32s ease-in-out infinite;
+    }
+    .bg-mesh .blob-4 {
+      width: 300px; height: 300px; background: #ff9f0a;
+      top: 50%; right: 10%;
+      animation: float1 26s ease-in-out infinite reverse;
+      opacity: 0.08;
+    }
+    @keyframes float1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-40px, 50px) scale(1.05); } }
+    @keyframes float2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(50px, -35px) scale(0.95); } }
+    @keyframes float3 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(35px, 40px) scale(1.08); } }
+
+    /* ============================================
+       Scroll Progress Bar
+       ============================================ */
+    .scroll-progress {
+      position: fixed; top: 0; left: 0; height: 2px;
+      background: linear-gradient(90deg, var(--accent), var(--executor), var(--success));
+      z-index: 200; width: 0%;
+      transition: width 0.08s linear;
+    }
+
+    /* ============================================
+       Sidebar — Frosted Glass (Apple style)
+       ============================================ */
+    .sidebar {
+      position: fixed;
+      left: 0; top: 0; bottom: 0;
+      width: var(--sidebar-w);
+      background: rgba(251,251,253,0.8);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 100;
+      overflow-y: auto;
+    }
+    .sidebar::-webkit-scrollbar { width: 0; }
+
+    .sidebar-brand {
+      padding: 20px 18px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .sidebar-brand .logo { display: flex; align-items: center; gap: 10px; }
+    .sidebar-brand .logo-icon {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, var(--accent) 0%, var(--executor) 100%);
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display);
+      font-size: 14px; font-weight: 700; color: #fff;
+      box-shadow: 0 2px 8px rgba(0,113,227,0.25);
+    }
+    .sidebar-brand .logo-text {
+      font-family: var(--font-display);
+      font-size: 14px; font-weight: 600; color: var(--ink);
+    }
+    .sidebar-brand .logo-sub {
+      font-size: 11px; color: var(--muted); margin-top: 2px;
+      font-family: var(--font-mono);
+    }
+
+    .sidebar-nav { padding: 12px 10px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 12px; border-radius: 10px;
+      cursor: pointer; font-size: 13px; font-weight: 500;
+      color: var(--muted);
+      transition: all 0.2s var(--ease);
+      margin-bottom: 2px;
+    }
+    .nav-item:hover { background: var(--surface-2); color: var(--ink-2); }
+    .nav-item.active { background: var(--accent-s); color: var(--accent); font-weight: 600; }
+    .nav-item .nav-icon { width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nav-item .nav-icon svg { width: 100%; height: 100%; }
+
+    .sidebar-section {
+      padding: 16px 18px;
+      border-top: 1px solid var(--border);
+    }
+    .sidebar-label {
+      font-size: 10px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.08em;
+      color: var(--muted-2); margin-bottom: 10px;
+    }
+
+    .agent-status {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 0; font-size: 12px; color: var(--muted);
+    }
+    .agent-status .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; transition: all 0.3s; }
+    .agent-status .dot.p { background: var(--planner); }
+    .agent-status .dot.e { background: var(--executor); }
+    .agent-status .dot.c { background: var(--critic); }
+    .agent-status .dot.s { background: var(--synthesizer); }
+    .agent-status .dot.idle { opacity: 0.25; }
+    .agent-status .dot:not(.idle) { box-shadow: 0 0 0 3px rgba(0,113,227,0.1); animation: pulse 2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { box-shadow: 0 0 0 3px rgba(0,113,227,0.1); } 50% { box-shadow: 0 0 0 6px rgba(0,113,227,0.05); } }
+    .agent-status .name { font-weight: 500; }
+    .agent-status .state { margin-left: auto; font-size: 10px; font-family: var(--font-mono); color: var(--muted-2); }
+
+    .mini-budget-bar {
+      height: 4px; background: var(--surface-2);
+      border-radius: 2px; overflow: hidden; margin-top: 8px;
+    }
+    .mini-budget-fill {
+      height: 100%; border-radius: 2px;
+      transition: width 0.6s var(--ease-out); width: 0%;
+    }
+    .mini-budget-text {
+      display: flex; justify-content: space-between;
+      font-size: 11px; font-family: var(--font-mono);
+      color: var(--muted); margin-top: 6px;
+    }
+
+    .sidebar-budget { margin-top: auto; }
+
+    /* ============================================
+       Main Content
+       ============================================ */
+    .main {
+      margin-left: var(--sidebar-w);
+      min-height: 100vh;
+    }
+    .main-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 40px 32px 80px;
+    }
+
+    .page-head { margin-bottom: 28px; opacity: 0; animation: fadeUp 0.5s var(--ease-out) 0.1s forwards; position: relative; }
+    .page-head .crumb { font-size: 12px; font-family: var(--font-mono); color: var(--muted); margin-bottom: 8px; }
+    .page-head h1 {
+      font-family: var(--font-display);
+      font-size: 30px; font-weight: 700;
+      letter-spacing: -0.02em; color: var(--ink);
+      background: linear-gradient(135deg, var(--ink) 0%, var(--ink-2) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .page-head .desc { font-size: 15px; color: var(--muted); margin-top: 6px; max-width: 600px; line-height: 1.55; }
+
+    /* ============================================
+       Agent Pipeline Diagram
+       ============================================ */
+    .pipeline {
+      display: flex; align-items: center; gap: 0;
+      margin-bottom: 18px; padding: 24px 20px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; box-shadow: var(--shadow-sm);
+      opacity: 0; animation: fadeUp 0.5s var(--ease-out) 0.2s forwards;
+      overflow-x: auto;
+    }
+    .pipeline::-webkit-scrollbar { height: 0; }
+    .pipeline-node {
+      display: flex; flex-direction: column; align-items: center; gap: 6px;
+      min-width: 76px; position: relative; z-index: 2;
+    }
+    .pipeline-icon {
+      width: 44px; height: 44px; border-radius: 13px;
+      display: flex; align-items: center; justify-content: center;
+      font-family: var(--font-display); font-size: 17px; font-weight: 700; color: #fff;
+      transition: all 0.4s var(--ease-spring);
+      position: relative;
+    }
+    .pipeline-icon::after {
+      content: ''; position: absolute; inset: 0; border-radius: 13px;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .pipeline-icon.p { background: linear-gradient(135deg, #0071e3, #4080ff); box-shadow: 0 4px 14px rgba(0,113,227,0.2); }
+    .pipeline-icon.e { background: linear-gradient(135deg, #06b6d4, #22d3ee); box-shadow: 0 4px 14px rgba(6,182,212,0.2); }
+    .pipeline-icon.c { background: linear-gradient(135deg, #ff9f0a, #ffb340); box-shadow: 0 4px 14px rgba(255,159,10,0.2); }
+    .pipeline-icon.s { background: linear-gradient(135deg, #30d158, #34d176); box-shadow: 0 4px 14px rgba(48,209,88,0.2); }
+    .pipeline-label { font-size: 12px; font-weight: 600; color: var(--ink); white-space: nowrap; }
+    .pipeline-desc { font-size: 10px; color: var(--muted); white-space: nowrap; }
+    .pipeline-node.active .pipeline-icon {
+      transform: scale(1.12);
+    }
+    .pipeline-node.active .pipeline-icon.p { box-shadow: 0 0 0 4px rgba(0,113,227,0.15), 0 6px 20px rgba(0,113,227,0.3); }
+    .pipeline-node.active .pipeline-icon.e { box-shadow: 0 0 0 4px rgba(6,182,212,0.15), 0 6px 20px rgba(6,182,212,0.3); }
+    .pipeline-node.active .pipeline-icon.c { box-shadow: 0 0 0 4px rgba(255,159,10,0.15), 0 6px 20px rgba(255,159,10,0.3); }
+    .pipeline-node.active .pipeline-icon.s { box-shadow: 0 0 0 4px rgba(48,209,88,0.15), 0 6px 20px rgba(48,209,88,0.3); }
+    .pipeline-node.done .pipeline-icon { opacity: 0.5; }
+    .pipeline-conn {
+      flex: 1; min-width: 24px; height: 2px;
+      background: var(--surface-2); position: relative;
+      margin: 0 -2px; margin-top: -22px; border-radius: 1px;
+    }
+    .pipeline-flow {
+      position: absolute; top: 0; height: 100%; width: 40%;
+      border-radius: 1px;
+      animation: flowMove 2.5s linear infinite;
+    }
+    .pipeline-flow.p2e { background: linear-gradient(90deg, transparent, var(--planner), var(--executor), transparent); }
+    .pipeline-flow.e2c { background: linear-gradient(90deg, transparent, var(--executor), var(--critic), transparent); }
+    .pipeline-flow.c2s { background: linear-gradient(90deg, transparent, var(--critic), var(--synthesizer), transparent); }
+    @keyframes flowMove { 0% { left: -40%; } 100% { left: 100%; } }
+    .pipeline-node.active + .pipeline-conn .pipeline-flow { animation-duration: 1s; }
+
+    /* ============================================
+       Card
+       ============================================ */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 22px;
+      margin-bottom: 14px;
+      box-shadow: var(--shadow-sm);
+      transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease), border-color 0.3s;
+    }
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-md);
+      border-color: var(--border-2);
+    }
+    .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .card-title {
+      font-size: 12px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+    }
+    .card-badge {
+      font-size: 10px; font-family: var(--font-mono);
+      padding: 2px 8px; border-radius: 100px;
+      background: var(--surface-2); color: var(--muted);
+    }
+
+    /* ============================================
+       Inputs
+       ============================================ */
+    textarea {
+      width: 100%;
+      background: var(--surface-2);
+      border: 1px solid transparent;
+      border-radius: 12px;
+      padding: 14px 16px;
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 15px; line-height: 1.5;
+      resize: vertical; min-height: 64px;
+      transition: all 0.2s var(--ease);
+    }
+    textarea::placeholder { color: var(--muted-2); }
+    textarea:focus { outline: none; background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-s); }
+
+    input[type="number"] {
+      background: var(--surface-2); border: 1px solid transparent;
+      border-radius: 10px; padding: 6px 12px;
+      color: var(--ink); font-family: var(--font-body); font-size: 13px;
+      width: 100px; transition: all 0.2s var(--ease);
+    }
+    input[type="number"]:focus { outline: none; background: var(--surface); border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-s); }
+
+    .field-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+    .field-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+
+    .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+    .chip {
+      padding: 5px 12px; background: var(--surface-2);
+      border: 1px solid var(--border); border-radius: 100px;
+      font-size: 12px; color: var(--muted); cursor: pointer;
+      transition: all 0.2s var(--ease); font-weight: 500;
+    }
+    .chip:hover { background: var(--accent-s); color: var(--accent); border-color: transparent; transform: scale(1.03); }
+    .chip:active { transform: scale(0.97); }
+
+    /* ============================================
+       Buttons
+       ============================================ */
+    .btn {
+      padding: 9px 22px; border: none; border-radius: 100px;
+      font-family: var(--font-body); font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: all 0.2s var(--ease);
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .btn-primary { background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(0,113,227,0.2); }
+    .btn-primary:hover { background: var(--accent-h); transform: scale(1.02); box-shadow: 0 4px 14px rgba(0,113,227,0.3); }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-ghost { background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--border-2); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+    .btn-row { display: flex; gap: 8px; margin-top: 16px; }
+
+    /* ============================================
+       Split Layout
+       ============================================ */
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .split-col { display: flex; flex-direction: column; gap: 14px; }
+
+    /* ============================================
+       Metrics
+       ============================================ */
+    .metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; margin-bottom: 14px; }
+    .metric {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 14px; padding: 18px 14px; box-shadow: var(--shadow-sm);
+      transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+      position: relative; overflow: hidden;
+    }
+    .metric::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+      opacity: 0; transition: opacity 0.3s;
+    }
+    .metric:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .metric:hover::before { opacity: 1; }
+    .metric:nth-child(1)::before { background: linear-gradient(90deg, var(--planner), transparent); }
+    .metric:nth-child(2)::before { background: linear-gradient(90deg, var(--executor), transparent); }
+    .metric:nth-child(3)::before { background: linear-gradient(90deg, var(--critic), transparent); }
+    .metric:nth-child(4)::before { background: linear-gradient(90deg, var(--synthesizer), transparent); }
+    .metric .val {
+      font-family: var(--font-display); font-size: 26px; font-weight: 700;
+      letter-spacing: -0.02em; line-height: 1;
+    }
+    .metric .val.blue { color: var(--accent); }
+    .metric .val.cyan { color: var(--executor); }
+    .metric .val.amber { color: var(--critic); }
+    .metric .val.green { color: var(--success); }
+    .metric .lbl { font-size: 11px; color: var(--muted); margin-top: 6px; }
+
+    /* ============================================
+       Budget Ring
+       ============================================ */
+    .budget-display { display: flex; align-items: center; gap: 20px; }
+    .budget-ring { position: relative; width: 72px; height: 72px; flex-shrink: 0; }
+    .budget-ring svg { transform: rotate(-90deg); }
+    .budget-ring .bg { fill: none; stroke: var(--surface-2); stroke-width: 6; }
+    .budget-ring .fill {
+      fill: none; stroke: var(--success); stroke-width: 6; stroke-linecap: round;
+      transition: stroke-dashoffset 0.8s var(--ease-out), stroke 0.3s;
+    }
+    .budget-ring .fill.warn { stroke: var(--warning); }
+    .budget-ring .fill.danger { stroke: var(--danger); }
+    .budget-ring .center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .budget-ring .pct { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--ink); }
+    .budget-info { flex: 1; }
+    .budget-info .row { display: flex; justify-content: space-between; padding: 3px 0; font-size: 13px; }
+    .budget-info .row .k { color: var(--muted); }
+    .budget-info .row .v { color: var(--ink); font-weight: 600; font-family: var(--font-mono); font-size: 12px; }
+    .degrade-tag {
+      display: inline-block; margin-top: 6px; padding: 3px 10px;
+      border-radius: 100px; font-size: 11px; font-weight: 600;
+    }
+    .degrade-tag.l0 { background: rgba(48,209,88,0.1);  color: var(--success); }
+    .degrade-tag.l1 { background: rgba(255,159,10,0.1); color: var(--warning); }
+    .degrade-tag.l2 { background: rgba(255,159,10,0.15); color: var(--warning); }
+    .degrade-tag.l3 { background: rgba(255,59,48,0.1);  color: var(--danger); }
+
+    /* ============================================
+       Steps
+       ============================================ */
+    .step-item { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); animation: slideIn 0.3s var(--ease-out) forwards; opacity: 0; }
+    .step-item:last-child { border-bottom: none; }
+    @keyframes slideIn { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: translateX(0); } }
+    .step-num {
+      width: 24px; height: 24px; border-radius: 8px;
+      background: var(--accent-s); color: var(--accent);
+      font-family: var(--font-display); font-size: 12px; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .step-body { flex: 1; min-width: 0; }
+    .step-action { font-size: 11px; font-family: var(--font-mono); color: var(--executor); }
+    .step-desc { font-size: 13px; color: var(--ink); margin-top: 2px; }
+    .step-status { font-size: 10px; padding: 2px 8px; border-radius: 100px; font-weight: 600; align-self: center; flex-shrink: 0; }
+    .step-status.done    { background: rgba(48,209,88,0.1);  color: var(--success); }
+    .step-status.pending { background: rgba(174,174,178,0.15); color: var(--muted); }
+    .step-status.failed  { background: rgba(255,59,48,0.1);   color: var(--danger); }
+
+    /* ============================================
+       Answer
+       ============================================ */
+    .answer-box {
+      background: linear-gradient(135deg, rgba(48,209,88,0.04) 0%, rgba(0,113,227,0.04) 100%);
+      border: 1px solid rgba(48,209,88,0.15);
+      border-radius: 16px; padding: 20px; margin-bottom: 14px;
+      position: relative; overflow: hidden;
+    }
+    .answer-box::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+      background: linear-gradient(90deg, var(--success), var(--accent));
+      opacity: 0.6;
+    }
+    .answer-box .label {
+      font-size: 12px; font-weight: 600; color: var(--success);
+      text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .answer-box .label::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--success); animation: pulse 2s ease-in-out infinite; }
+    .answer-box .content { font-size: 15px; color: var(--ink); line-height: 1.65; }
+
+    /* ============================================
+       Console
+       ============================================ */
+    .console {
+      background: #1d1d1f; border-radius: 12px; padding: 14px;
+      max-height: 400px; overflow-y: auto;
+      font-family: var(--font-mono); font-size: 12px; line-height: 1.7;
+    }
+    .console::-webkit-scrollbar { width: 4px; }
+    .console::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    .log-line { color: rgba(255,255,255,0.4); padding: 1px 0; animation: logAppear 0.3s ease forwards; opacity: 0; }
+    @keyframes logAppear { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .log-line.planner     { color: #64b5f6; }
+    .log-line.executor    { color: #4dd0e1; }
+    .log-line.critic      { color: #ffb74d; }
+    .log-line.synthesizer { color: #81c784; }
+
+    /* ============================================
+       Table
+       ============================================ */
+    .table-wrap { overflow-x: auto; border-radius: 12px; border: 1px solid var(--border); }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    th { background: var(--surface-2); padding: 8px 12px; text-align: left; font-weight: 600; color: var(--muted); font-size: 11px; position: sticky; top: 0; }
+    td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--ink-2); }
+    tr:hover td { background: var(--surface-3); }
+    .tag-ok { color: var(--success); font-weight: 600; }
+    .tag-no { color: var(--danger); font-weight: 600; }
+
+    /* ============================================
+       Compare
+       ============================================ */
+    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .compare-col {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 20px; box-shadow: var(--shadow-sm);
+      transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
+    }
+    .compare-col:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+    .compare-col h4 { font-family: var(--font-display); font-size: 15px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+    .compare-col h4 .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .compare-col.multi h4 .dot { background: var(--accent); }
+    .compare-col.react h4 .dot { background: var(--executor); }
+    .compare-col .answer { font-size: 13px; color: var(--ink); line-height: 1.55; margin-bottom: 10px; padding: 12px; background: var(--surface-2); border-radius: 10px; }
+    .compare-col .stats { display: flex; gap: 14px; font-size: 11px; color: var(--muted); }
+    .compare-col .stats strong { color: var(--ink); font-family: var(--font-mono); }
+
+    /* ============================================
+       Shimmer Loading
+       ============================================ */
+    .shimmer-box {
+      background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: 8px;
+    }
+    @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+    .shimmer-line { height: 12px; margin-bottom: 8px; }
+    .shimmer-line:last-child { width: 60%; }
+
+    .loading { text-align: center; padding: 30px; color: var(--muted); font-size: 13px; }
+    .spinner { width: 24px; height: 24px; border: 2px solid var(--surface-2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; margin: 0 auto 10px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; animation: fadeIn 0.3s var(--ease); }
+
+    @keyframes fadeUp { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .reveal { opacity: 0; animation: fadeUp 0.4s var(--ease-out) forwards; }
+    .reveal:nth-child(1) { animation-delay: 0.05s; }
+    .reveal:nth-child(2) { animation-delay: 0.1s; }
+    .reveal:nth-child(3) { animation-delay: 0.15s; }
+    .reveal:nth-child(4) { animation-delay: 0.2s; }
+    .reveal:nth-child(5) { animation-delay: 0.25s; }
+
+    /* ============================================
+       Responsive
+       ============================================ */
+    @media (max-width: 900px) {
+      .sidebar { transform: translateX(-100%); transition: transform 0.3s; }
+      .sidebar.open { transform: translateX(0); }
+      .main { margin-left: 0; }
+      .split { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: 1fr 1fr; }
+      .compare-grid { grid-template-columns: 1fr; }
+      .main-inner { padding: 20px 16px 60px; }
+      .menu-toggle { display: flex !important; }
+      .pipeline { padding: 16px 12px; }
+      .pipeline-node { min-width: 60px; }
+      .pipeline-icon { width: 36px; height: 36px; font-size: 14px; }
+    }
+    .menu-toggle {
+      display: none; position: fixed; top: 12px; left: 12px; z-index: 101;
+      width: 36px; height: 36px; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; align-items: center; justify-content: center; cursor: pointer; color: var(--ink);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Gradient Mesh -->
+  <div class="bg-mesh">
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
+    <div class="blob blob-4"></div>
+  </div>
+
+  <!-- Scroll Progress -->
+  <div class="scroll-progress" id="scrollProgress"></div>
+
+  <div class="menu-toggle" onclick="document.querySelector('.sidebar').classList.toggle('open')">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+  </div>
+
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="logo">
+        <div class="logo-icon">L</div>
+        <div>
+          <div class="logo-text">LangGraph Agent</div>
+          <div class="logo-sub">v1.0 · Plan-Execute-Reflect</div>
+        </div>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-item active" data-tab="task" onclick="switchTab('task', this)">
+        <span class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M2 8h12M2 12h8"/></svg></span>
+        任务执行
+      </div>
+      <div class="nav-item" data-tab="eval" onclick="switchTab('eval', this)">
+        <span class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="2"/><path d="M5 8l2 2 4-4"/></svg></span>
+        GAIA 评估
+      </div>
+      <div class="nav-item" data-tab="compare" onclick="switchTab('compare', this)">
+        <span class="nav-icon"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2v12M2 5h4M10 11h4"/></svg></span>
+        对比测试
+      </div>
+    </nav>
+
+    <div class="sidebar-section">
+      <div class="sidebar-label">Agent 状态</div>
+      <div class="agent-status"><span class="dot p idle"></span><span class="name">Planner</span><span class="state" id="statusPlanner">idle</span></div>
+      <div class="agent-status"><span class="dot e idle"></span><span class="name">Executor</span><span class="state" id="statusExecutor">idle</span></div>
+      <div class="agent-status"><span class="dot c idle"></span><span class="name">Critic</span><span class="state" id="statusCritic">idle</span></div>
+      <div class="agent-status"><span class="dot s idle"></span><span class="name">Synthesizer</span><span class="state" id="statusSynthesizer">idle</span></div>
+    </div>
+
+    <div class="sidebar-section sidebar-budget">
+      <div class="sidebar-label">Token 预算</div>
+      <div class="mini-budget-bar"><div class="mini-budget-fill" id="miniBudgetFill" style="background:var(--success)"></div></div>
+      <div class="mini-budget-text"><span id="miniBudgetUsed">0</span><span id="miniBudgetTotal">50,000</span></div>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main"><div class="main-inner">
+
+    <!-- TAB 1: Task -->
+    <div id="tab-task" class="tab-panel active">
+      <div class="page-head">
+        <div class="crumb">/ task / execute</div>
+        <h1>任务执行</h1>
+        <p class="desc">输入问题，四个 Agent 角色协作完成。Planner 拆解任务 → Executor 调用工具 → Critic 质量评审 → Synthesizer 综合答案。</p>
+      </div>
+
+      <!-- Agent Pipeline Diagram -->
+      <div class="pipeline" id="pipeline">
+        <div class="pipeline-node" id="pipePlanner">
+          <div class="pipeline-icon p">P</div>
+          <div class="pipeline-label">Planner</div>
+          <div class="pipeline-desc">规划拆解</div>
+        </div>
+        <div class="pipeline-conn"><div class="pipeline-flow p2e"></div></div>
+        <div class="pipeline-node" id="pipeExecutor">
+          <div class="pipeline-icon e">E</div>
+          <div class="pipeline-label">Executor</div>
+          <div class="pipeline-desc">执行调用</div>
+        </div>
+        <div class="pipeline-conn"><div class="pipeline-flow e2c"></div></div>
+        <div class="pipeline-node" id="pipeCritic">
+          <div class="pipeline-icon c">C</div>
+          <div class="pipeline-label">Critic</div>
+          <div class="pipeline-desc">质量评审</div>
+        </div>
+        <div class="pipeline-conn"><div class="pipeline-flow c2s"></div></div>
+        <div class="pipeline-node" id="pipeSynthesizer">
+          <div class="pipeline-icon s">S</div>
+          <div class="pipeline-label">Synthesizer</div>
+          <div class="pipeline-desc">综合答案</div>
+        </div>
+      </div>
+
+      <div class="card reveal">
+        <div class="card-head"><span class="card-title">输入任务</span><span class="card-badge">DeepSeek API</span></div>
+        <textarea id="query" placeholder="输入你的问题...">计算 100 的阶乘有多少位数字？</textarea>
+        <div class="field-row"><span class="field-label">Token 预算</span><input type="number" id="token_budget" value="50000" min="1000" step="1000"></div>
+        <div class="chips">
+          <span class="chip" onclick="setQuery('100的阶乘有多少位数字？')">阶乘计算</span>
+          <span class="chip" onclick="setQuery('Fibonacci数列的第20项是多少？')">Fibonacci</span>
+          <span class="chip" onclick="setQuery('2的100次方的首位数字是什么？')">指数计算</span>
+          <span class="chip" onclick="setQuery('中国有多少个省级行政区？乘以5后是多少？')">搜索+计算</span>
+        </div>
+        <div class="btn-row"><button class="btn btn-primary" id="runBtn" onclick="runTask()">运行任务</button></div>
+      </div>
+
+      <div id="taskResult" style="display:none;">
+        <div class="metrics reveal" id="taskMetrics"></div>
+        <div class="split">
+          <div class="split-col">
+            <div class="card reveal">
+              <div class="card-head"><span class="card-title">执行计划</span><span class="card-badge" id="planCount">0 steps</span></div>
+              <div id="planView"></div>
+            </div>
+            <div class="answer-box reveal">
+              <div class="label">最终答案</div>
+              <div class="content" id="finalAnswer"></div>
+            </div>
+          </div>
+          <div class="split-col">
+            <div class="card reveal">
+              <div class="card-head"><span class="card-title">Token 预算</span></div>
+              <div class="budget-display">
+                <div class="budget-ring">
+                  <svg width="72" height="72"><circle class="bg" cx="36" cy="36" r="30"/><circle class="fill" id="ringFill" cx="36" cy="36" r="30" stroke-dasharray="188.5" stroke-dashoffset="188.5"/></svg>
+                  <div class="center"><div class="pct" id="ringPercent">0%</div></div>
+                </div>
+                <div class="budget-info">
+                  <div class="row"><span class="k">已消耗</span><span class="v" id="budgetUsed">0</span></div>
+                  <div class="row"><span class="k">总预算</span><span class="v" id="budgetTotal">50,000</span></div>
+                  <div class="row"><span class="k">剩余</span><span class="v" id="budgetRemain">50,000</span></div>
+                  <div id="budgetDegrade" class="degrade-tag l0">正常运行</div>
+                </div>
+              </div>
+            </div>
+            <div class="card reveal">
+              <div class="card-head"><span class="card-title">执行日志</span><span class="card-badge" id="logCount">0 lines</span></div>
+              <div class="console" id="taskLogs"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 2: Eval -->
+    <div id="tab-eval" class="tab-panel">
+      <div class="page-head">
+        <div class="crumb">/ benchmark / gaia-l1</div>
+        <h1>GAIA Level 1 评估</h1>
+        <p class="desc">多步推理任务集，需要搜索+计算+推理配合完成。对比多智能体框架与 ReAct 单 Agent 基线的准确率和 Token 消耗。</p>
+      </div>
+      <div class="card reveal">
+        <div class="card-head"><span class="card-title">评估配置</span></div>
+        <div class="field-row" style="margin-top:0;"><span class="field-label">样本数</span><input type="number" id="eval_samples" value="5" min="1" max="10"></div>
+        <div class="btn-row"><button class="btn btn-primary" onclick="runEval('multi_agent')">多智能体评估</button><button class="btn btn-ghost" onclick="runEval('react')">ReAct 基线</button></div>
+      </div>
+      <div id="evalResult" style="display:none;">
+        <div class="metrics reveal" id="evalMetrics"></div>
+        <div class="card reveal">
+          <div class="card-head"><span class="card-title">详细结果</span></div>
+          <div class="table-wrap"><table><thead><tr><th>#</th><th>问题</th><th>标准答案</th><th>预测</th><th>结果</th><th>Token</th></tr></thead><tbody id="evalTableBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB 3: Compare -->
+    <div id="tab-compare" class="tab-panel">
+      <div class="page-head">
+        <div class="crumb">/ compare / multi-vs-react</div>
+        <h1>对比测试</h1>
+        <p class="desc">同一问题，两种架构并排执行。对比答案质量与 Token 消耗。</p>
+      </div>
+      <div class="card reveal">
+        <div class="card-head"><span class="card-title">对比问题</span></div>
+        <textarea id="compare_query" placeholder="输入对比测试的问题...">DeepSeek是什么？</textarea>
+        <div class="btn-row"><button class="btn btn-primary" onclick="runCompare()">开始对比</button></div>
+      </div>
+      <div id="compareResult" style="display:none;">
+        <div class="compare-grid">
+          <div class="compare-col multi reveal"><h4><span class="dot"></span>多智能体框架</h4><div id="compareMulti"><div class="loading"><div class="spinner"></div>等待执行...</div></div></div>
+          <div class="compare-col react reveal"><h4><span class="dot"></span>ReAct 单 Agent</h4><div id="compareReact"><div class="loading"><div class="spinner"></div>等待执行...</div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div></div>
+
+  <script>
+    // Scroll Progress
+    window.addEventListener('scroll', () => {
+      const sh = document.documentElement.scrollHeight - window.innerHeight;
+      const pct = sh > 0 ? (window.scrollY / sh) * 100 : 0;
+      document.getElementById('scrollProgress').style.width = pct + '%';
+    });
+
+    function switchTab(name, el) {
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      el.classList.add('active');
+      document.getElementById('tab-' + name).classList.add('active');
+    }
+    function setQuery(q) { document.getElementById('query').value = q; }
+
+    // Animated counter
+    function animateCounter(el, target, duration = 900) {
+      const startTime = performance.now();
+      function update(now) {
+        const progress = Math.min(1, (now - startTime) / duration);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        const current = Math.round(target * eased);
+        el.textContent = current.toLocaleString();
+        if (progress < 1) requestAnimationFrame(update);
+      }
+      requestAnimationFrame(update);
+    }
+
+    // Pipeline node activation
+    function setPipelineActive(agents) {
+      const map = { P: 'pipePlanner', E: 'pipeExecutor', C: 'pipeCritic', S: 'pipeSynthesizer' };
+      Object.keys(map).forEach(key => {
+        const node = document.getElementById(map[key]);
+        if (agents.includes(key)) node.classList.add('active');
+        else node.classList.remove('active');
+      });
+    }
+    function setPipelineDone(agents) {
+      const map = { P: 'pipePlanner', E: 'pipeExecutor', C: 'pipeCritic', S: 'pipeSynthesizer' };
+      Object.keys(map).forEach(key => {
+        const node = document.getElementById(map[key]);
+        if (agents.includes(key)) { node.classList.remove('active'); node.classList.add('done'); }
+        else node.classList.remove('done');
+      });
+    }
+
+    function updateAgentStatus(agents) {
+      const map = { P: 'statusPlanner', E: 'statusExecutor', C: 'statusCritic', S: 'statusSynthesizer' };
+      Object.keys(map).forEach(key => {
+        const el = document.getElementById(map[key]);
+        const dot = el.previousElementSibling;
+        if (agents.includes(key)) { el.textContent = 'active'; dot.classList.remove('idle'); }
+        else { el.textContent = 'idle'; dot.classList.add('idle'); }
+      });
+    }
+    function updateMiniBudget(used, total) {
+      const ratio = used / total;
+      const fill = document.getElementById('miniBudgetFill');
+      fill.style.width = Math.min(100, ratio * 100) + '%';
+      fill.style.background = ratio > 0.95 ? 'var(--danger)' : ratio > 0.7 ? 'var(--warning)' : 'var(--success)';
+      document.getElementById('miniBudgetUsed').textContent = used.toLocaleString();
+      document.getElementById('miniBudgetTotal').textContent = total.toLocaleString();
+    }
+
+    // Shimmer loading HTML
+    function shimmerLoading(lines = 4) {
+      let html = '<div style="padding:8px 0;">';
+      for (let i = 0; i < lines; i++) html += '<div class="shimmer-box shimmer-line"></div>';
+      html += '</div>';
+      return html;
+    }
+
+    async function runTask() {
+      const query = document.getElementById('query').value;
+      const budget = parseInt(document.getElementById('token_budget').value);
+      const btn = document.getElementById('runBtn');
+      btn.disabled = true; btn.textContent = '执行中...';
+      document.getElementById('taskResult').style.display = 'block';
+      document.getElementById('taskMetrics').innerHTML = '<div class="metric">' + shimmerLoading(2) + '</div>'.repeat(4);
+      document.getElementById('planView').innerHTML = shimmerLoading(3);
+      document.getElementById('taskLogs').innerHTML = '<div class="loading"><div class="spinner"></div>执行 Plan-Execute-Reflect 循环...</div>';
+      document.getElementById('finalAnswer').textContent = '';
+      // Reset pipeline
+      ['pipePlanner','pipeExecutor','pipeCritic','pipeSynthesizer'].forEach(id => { const n = document.getElementById(id); n.classList.remove('active','done'); });
+      updateAgentStatus(['P']);
+      setPipelineActive(['P']);
+      try {
+        const resp = await fetch('/api/run_task', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({query, token_budget: budget}) });
+        const data = await resp.json();
+        if (data.success) {
+          displayTaskResult(data, budget);
+          updateAgentStatus([]);
+          setPipelineDone(['P','E','C','S']);
+        }
+        else {
+          document.getElementById('taskLogs').innerHTML = '<div style="color:var(--danger);">错误: ' + data.error + '</div>';
+          updateAgentStatus([]);
+          setPipelineActive([]);
+        }
+      } catch(e) {
+        document.getElementById('taskLogs').innerHTML = '<div style="color:var(--danger);">请求失败: ' + e.message + '</div>';
+        updateAgentStatus([]);
+        setPipelineActive([]);
+      }
+      btn.disabled = false; btn.textContent = '运行任务';
+    }
+
+    function displayTaskResult(data, budget) {
+      const metrics = [
+        `<div class="metric"><div class="val blue" data-target="${data.iteration}">0</div><div class="lbl">迭代轮次</div></div>`,
+        `<div class="metric"><div class="val cyan" data-target="${data.plan.length}">0</div><div class="lbl">计划步骤</div></div>`,
+        `<div class="metric"><div class="val amber" data-target="${data.results.length}">0</div><div class="lbl">执行结果</div></div>`,
+        `<div class="metric"><div class="val green" data-target="${data.token_used}">0</div><div class="lbl">Token 消耗</div></div>`,
+      ];
+      document.getElementById('taskMetrics').innerHTML = metrics.join('');
+      // Animate counters
+      document.querySelectorAll('#taskMetrics .val').forEach(el => {
+        animateCounter(el, parseInt(el.dataset.target));
+      });
+
+      const ratio = data.token_used / budget;
+      const circ = 188.5;
+      const offset = circ * (1 - Math.min(1, ratio));
+      const ringFill = document.getElementById('ringFill');
+      ringFill.style.strokeDashoffset = offset;
+      ringFill.className = 'fill' + (ratio > 0.95 ? ' danger' : ratio > 0.7 ? ' warn' : '');
+      document.getElementById('ringPercent').textContent = (ratio * 100).toFixed(1) + '%';
+      document.getElementById('budgetUsed').textContent = data.token_used.toLocaleString();
+      document.getElementById('budgetTotal').textContent = budget.toLocaleString();
+      document.getElementById('budgetRemain').textContent = (budget - data.token_used).toLocaleString();
+      updateMiniBudget(data.token_used, budget);
+      const degradeEl = document.getElementById('budgetDegrade');
+      let level = 0, label = '正常运行';
+      if (ratio > 0.95) { level = 3; label = '强制综合模式'; }
+      else if (ratio > 0.85) { level = 2; label = '步骤合并模式'; }
+      else if (ratio > 0.70) { level = 1; label = '快速验证模式'; }
+      degradeEl.className = 'degrade-tag l' + level; degradeEl.textContent = label;
+      document.getElementById('planCount').textContent = data.plan.length + ' steps';
+      const planHtml = data.plan.map((s, i) => `<div class="step-item" style="animation-delay:${i * 0.08}s"><div class="step-num">${s.id}</div><div class="step-body"><div class="step-action">${s.action}</div><div class="step-desc">${s.description}</div></div><div class="step-status ${s.status}">${s.status === 'done' ? '完成' : s.status === 'failed' ? '失败' : '待执行'}</div></div>`).join('');
+      document.getElementById('planView').innerHTML = planHtml || '<div style="color:var(--muted);font-size:13px;">无计划</div>';
+      document.getElementById('finalAnswer').textContent = data.final_answer;
+      document.getElementById('logCount').textContent = data.logs.length + ' lines';
+      const logsHtml = data.logs.map((log, i) => { let cls = 'log-line'; if (log.includes('[Planner]')) cls += ' planner'; else if (log.includes('[Executor]')) cls += ' executor'; else if (log.includes('[Critic]')) cls += ' critic'; else if (log.includes('[Synthesizer]')) cls += ' synthesizer'; return `<div class="${cls}" style="animation-delay:${i * 0.02}s">${log}</div>`; }).join('');
+      document.getElementById('taskLogs').innerHTML = logsHtml;
+    }
+
+    async function runEval(agentType) {
+      const num = parseInt(document.getElementById('eval_samples').value);
+      document.getElementById('evalResult').style.display = 'block';
+      document.getElementById('evalMetrics').innerHTML = '<div class="metric">' + shimmerLoading(2) + '</div>'.repeat(4);
+      try {
+        const resp = await fetch('/api/eval_gaia', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({num_samples: num, agent_type: agentType}) });
+        const data = await resp.json();
+        if (data.success) {
+          const accColor = data.accuracy >= 0.7 ? 'green' : data.accuracy >= 0.5 ? 'amber' : 'blue';
+          const accPct = Math.round(data.accuracy * 1000) / 10;
+          const metrics = [
+            `<div class="metric"><div class="val ${accColor}" data-target="${accPct}" data-suffix="%">0%</div><div class="lbl">准确率</div></div>`,
+            `<div class="metric"><div class="val green" data-target="${data.correct_count}" data-suffix="/${data.total_samples}">0</div><div class="lbl">正确 / 总数</div></div>`,
+            `<div class="metric"><div class="val cyan" data-target="${data.total_tokens}">0</div><div class="lbl">总 Token</div></div>`,
+            `<div class="metric"><div class="val amber" data-target="${data.avg_tokens}">0</div><div class="lbl">平均 / 任务</div></div>`,
+          ];
+          document.getElementById('evalMetrics').innerHTML = metrics.join('');
+          // Animate counters with suffix support
+          document.querySelectorAll('#evalMetrics .val').forEach(el => {
+            const target = parseFloat(el.dataset.target);
+            const suffix = el.dataset.suffix || '';
+            const startTime = performance.now();
+            function update(now) {
+              const progress = Math.min(1, (now - startTime) / 900);
+              const eased = 1 - Math.pow(1 - progress, 3);
+              const current = target % 1 === 0 ? Math.round(target * eased) : (target * eased).toFixed(1);
+              el.textContent = current + suffix;
+              if (progress < 1) requestAnimationFrame(update);
+            }
+            requestAnimationFrame(update);
+          });
+          const rows = data.details.map(d => `<tr><td style="font-family:var(--font-mono);font-size:11px;">${d.task_id}</td><td>${d.question.substring(0, 25)}...</td><td style="font-weight:600;">${d.ground_truth}</td><td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(d.predicted||'').substring(0, 35)}</td><td class="${d.correct?'tag-ok':'tag-no'}">${d.correct?'✓':'✗'}</td><td style="font-family:var(--font-mono);">${d.tokens_used}</td></tr>`).join('');
+          document.getElementById('evalTableBody').innerHTML = rows;
+        } else { document.getElementById('evalMetrics').innerHTML = '<div style="color:var(--danger);">错误: ' + data.error + '</div>'; }
+      } catch(e) { document.getElementById('evalMetrics').innerHTML = '<div style="color:var(--danger);">请求失败: ' + e.message + '</div>'; }
+    }
+
+    async function runCompare() {
+      const query = document.getElementById('compare_query').value;
+      document.getElementById('compareResult').style.display = 'block';
+      document.getElementById('compareMulti').innerHTML = shimmerLoading(4);
+      document.getElementById('compareReact').innerHTML = shimmerLoading(4);
+      try {
+        const resp1 = await fetch('/api/run_task', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({query}) });
+        const multi = await resp1.json();
+        document.getElementById('compareReact').innerHTML = '<div class="loading"><div class="spinner"></div>执行中...</div>';
+        const resp2 = await fetch('/api/run_react', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({query}) });
+        const react = await resp2.json();
+        if (multi.success) { document.getElementById('compareMulti').innerHTML = `<div class="answer">${multi.final_answer}</div><div class="stats"><span>Token: <strong>${multi.token_used}</strong></span><span>迭代: <strong>${multi.iteration}</strong></span><span>步骤: <strong>${multi.plan.length}</strong></span></div><div style="margin-top:10px;max-height:120px;overflow-y:auto;font-size:11px;color:var(--muted);font-family:var(--font-mono);line-height:1.6;">${multi.logs.map(l => '<div>' + l + '</div>').join('')}</div>`; }
+        if (react.success) { document.getElementById('compareReact').innerHTML = `<div class="answer">${react.final_answer}</div><div class="stats"><span>Token: <strong>${react.token_used}</strong></span><span>步骤: <strong>${react.steps.length}</strong></span></div><div style="margin-top:10px;max-height:120px;overflow-y:auto;font-size:11px;color:var(--muted);font-family:var(--font-mono);line-height:1.6;">${react.logs.map(l => '<div>' + l + '</div>').join('')}</div>`; }
+      } catch(e) { document.getElementById('compareMulti').innerHTML = '<div style="color:var(--danger);">错误: ' + e.message + '</div>'; }
+    }
+  </script>
+</body>
+</html>
