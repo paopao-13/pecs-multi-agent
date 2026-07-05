@@ -1,0 +1,26 @@
+# 消融实验配置：移除 Critic 评审者
+# Executor 执行完直接进入 Synthesizer，跳过质量评审和重试环节。
+# 用于验证 Critic 质量评审对准确率的贡献。
+experiment_name: "no_critic"
+description: "移除Critic，Executor直连Synthesizer"
+
+architecture:
+  planner: true
+  executor: true
+  critic: false
+  synthesizer: true
+
+routing:
+  executor_to_critic: false
+  critic_retry: false
+  synthesizer_reflect: true
+
+token_budget:
+  enabled: true
+  total: 50000
+  degrade_threshold_1: 0.70
+  degrade_threshold_2: 0.85
+  degrade_threshold_3: 0.95
+
+max_iterations: 5
+max_retries: 3

@@ -1,0 +1,26 @@
+# 消融实验配置：移除 Synthesizer 综合者
+# Executor 执行完直接输出最后一步结果，不经过综合整理。
+# 用于验证 Synthesizer 结果整合对答案质量的贡献。
+experiment_name: "no_synthesizer"
+description: "移除Synthesizer，Executor直接输出结果"
+
+architecture:
+  planner: true
+  executor: true
+  critic: true
+  synthesizer: false
+
+routing:
+  executor_to_critic: true
+  critic_retry: true
+  synthesizer_reflect: false
+
+token_budget:
+  enabled: true
+  total: 50000
+  degrade_threshold_1: 0.70
+  degrade_threshold_2: 0.85
+  degrade_threshold_3: 0.95
+
+max_iterations: 5
+max_retries: 3

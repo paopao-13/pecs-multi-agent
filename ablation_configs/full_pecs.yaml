@@ -1,0 +1,25 @@
+# 消融实验配置：完整 PECS 四角色架构（对照组）
+# 所有角色和路由均启用，Token 预算感知调度全开。
+experiment_name: "full_pecs"
+description: "完整PECS四角色架构（对照组）"
+
+architecture:
+  planner: true
+  executor: true
+  critic: true
+  synthesizer: true
+
+routing:
+  executor_to_critic: true
+  critic_retry: true
+  synthesizer_reflect: true
+
+token_budget:
+  enabled: true
+  total: 50000
+  degrade_threshold_1: 0.70
+  degrade_threshold_2: 0.85
+  degrade_threshold_3: 0.95
+
+max_iterations: 5
+max_retries: 3

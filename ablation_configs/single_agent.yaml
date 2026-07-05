@@ -1,0 +1,26 @@
+# 消融实验配置：退化为纯 ReAct 单智能体
+# 移除 Planner、Critic、Synthesizer，仅保留 Executor。
+# 等效于 ReAct 单 Agent 基线，用于验证多角色分工的整体价值。
+experiment_name: "single_agent"
+description: "退化为纯ReAct单智能体（仅Executor）"
+
+architecture:
+  planner: false
+  executor: true
+  critic: false
+  synthesizer: false
+
+routing:
+  executor_to_critic: false
+  critic_retry: false
+  synthesizer_reflect: false
+
+token_budget:
+  enabled: false
+  total: 50000
+  degrade_threshold_1: 0.70
+  degrade_threshold_2: 0.85
+  degrade_threshold_3: 0.95
+
+max_iterations: 5
+max_retries: 3
