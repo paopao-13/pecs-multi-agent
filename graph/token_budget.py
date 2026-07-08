@@ -25,6 +25,16 @@ from config import (
 
 ROLE_NAMES = tuple(BUDGET_ALLOCATION.keys())
 
+# 角色超配额时的降级动作映射
+# 每个角色有独立的 Token 配额，超出时触发对应的降级策略
+ROLE_DEGRADE_ACTIONS = {
+    "planner": "skip_llm_use_heuristic",     # 规划者超限：跳过 LLM，用启发式替代
+    "executor": "merge_remaining_steps",      # 执行者超限：合并剩余步骤
+    "critic": "skip_critic",                  # 评审者超限：跳过评审
+    "synthesizer": "fast_synthesize",         # 综合者超限：快速综合
+}
+
+
 def estimate_tokens(text: str) -> int:
     """
     估算文本 token 数。
@@ -34,7 +44,13 @@ def estimate_tokens(text: str) -> int:
     """
     if not text:
         return 0
-    # 粗略估算：中英文混合约 3 字符/token
+    # 优先使用 tiktoken 精确计数
+    try:
+        from logger.token_counter import count_tokens
+        return count_tokens(text)
+    except ImportError:
+        pass
+    # 回退：粗略估算
     return max(1, len(str(text)) // 3)
 
 
@@ -287,3 +303,41 @@ class TokenBudgetManager:
         return estimate_tokens(text)
 
 
+def check_role_budget(state: dict, role: str) -> dict:
+    """
+    检查角色预算状态，返回 {exceeded: bool, action: str, remaining: int}
+
+    模块级函数，直接从 LangGraph 状态字典中读取角色的 Token 消耗和配额信息，
+    无需实例化 TokenBudgetManager。适合在路由函数和节点函数中快速查询。
+
+    参数:
+        state: LangGraph 共享状态字典，需包含以下字段：
+               - token_budget: 总 Token 预算
+               - role_token_used: 各角色 Token 消耗明细 {role: int}
+        role: 角色名称（planner / executor / critic / synthesizer）
+
+    返回:
+        {
+            "exceeded": bool,    # 该角色是否已超出独立配额
+            "action": str,       # 超出时的降级动作（未超出时为空字符串）
+            "remaining": int,    # 该角色剩余的 Token 配额（最小为0）
+        }
+    """
+    token_budget = state.get("token_budget", DEFAULT_TOKEN_BUDGET)
+    role_token_used = state.get("role_token_used", {}) or {}
+
+    # 计算角色配额
+    allocation = BUDGET_ALLOCATION.get(role, 0)
+    role_budget = int(token_budget * allocation)
+    role_used = role_token_used.get(role, 0)
+    remaining = max(0, role_budget - role_used)
+    exceeded = role_used > role_budget
+
+    # 获取降级动作（仅在超限时返回）
+    action = ROLE_DEGRADE_ACTIONS.get(role, "default_degrade") if exceeded else ""
+
+    return {
+        "exceeded": exceeded,
+        "action": action,
+        "remaining": remaining,
+    }

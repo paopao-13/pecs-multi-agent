@@ -1,0 +1,32 @@
+# 消融实验配置：保留 Synthesizer 但关闭重规划
+# 四个角色全部保留，Critic 评审和重试正常运作，
+# 但 Synthesizer 仅做结果拼接，不触发反思、不回传 Planner 重规划。
+# 用于验证重规划（Reflect → Replan）机制的价值。
+experiment_name: "synthesizer_no_replan"
+description: "保留Synthesizer但关闭重规划，仅做结果拼接，验证重规划的价值"
+ablation_mode: "function_disable"
+ablation_note: "保留Synthesizer但关闭重规划，仅做结果拼接，验证重规划的价值"
+
+architecture:
+  planner: true
+  executor: true
+  critic: true
+  synthesizer: true
+
+routing:
+  executor_to_critic: true
+  critic_retry: true
+  synthesizer_reflect: true
+
+# 关闭 Synthesizer 的重规划更新逻辑
+synthesizer_replan: false
+
+token_budget:
+  enabled: true
+  total: 50000
+  degrade_threshold_1: 0.70
+  degrade_threshold_2: 0.85
+  degrade_threshold_3: 0.95
+
+max_iterations: 5
+max_retries: 3

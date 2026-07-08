@@ -1,0 +1,29 @@
+# 消融实验配置：保留 Critic 但阻断反思闭环
+# 四个角色全部保留，Critic 仍做质量评审和重试，
+# 但 Synthesizer 的反思文本不回传给 Planner，无修正闭环。
+# 用于验证反思机制本身的价值（区别于完全移除 Critic）。
+experiment_name: "critic_no_reflect"
+description: "保留Critic但关闭反思闭环，验证反思机制本身的价值"
+ablation_mode: "function_disable"
+ablation_note: "保留Critic节点但关闭反思闭环，验证反思机制本身的价值"
+
+architecture:
+  planner: true
+  executor: true
+  critic: true
+  synthesizer: true
+
+routing:
+  executor_to_critic: true
+  critic_retry: true
+  synthesizer_reflect: false
+
+token_budget:
+  enabled: true
+  total: 50000
+  degrade_threshold_1: 0.70
+  degrade_threshold_2: 0.85
+  degrade_threshold_3: 0.95
+
+max_iterations: 5
+max_retries: 3

@@ -36,7 +36,7 @@ def test_create_initial_state():
     """create_initial_state() 返回正确初始状态"""
     state = create_initial_state("测试问题")
 
-    assert isinstance(state, dict)
+    assert hasattr(state, "query")  # Pydantic BaseModel 兼容字典式访问
     # 输入字段
     assert state["query"] == "测试问题"
     # 计划与结果应为空

@@ -1,0 +1,82 @@
+# PECS Multi-Agent 实验配置
+# 全项目统一配置中心，所有模块（框架主逻辑、评测、消融、调度）读取此文件
+# config.py 中的值作为代码级默认值，本文件可覆盖
+
+experiment:
+  name: "default"
+  seed: 42
+  output_dir: "results/"
+
+model:
+  provider: "deepseek"
+  model_name: "deepseek-chat"
+  temperatures:
+    planner: 0.3
+    executor: 0.0
+    critic: 0.1
+    synthesizer: 0.5
+  max_tokens: 2048
+
+token_budget:
+  total: 50000
+  degrade_threshold_1: 0.70
+  degrade_threshold_2: 0.85
+  degrade_threshold_3: 0.95
+  allocation:
+    planner: 0.15
+    executor: 0.50
+    critic: 0.20
+    synthesizer: 0.15
+  # 角色独立配额：单角色超限时触发轻量化降级，无需等待全局预算耗尽
+  role_quotas:
+    planner:
+      limit: 7500          # 15% of 50000
+      degrade_action: "skip_llm_use_heuristic"   # 超限→用启发式替代LLM调用
+    executor:
+      limit: 25000         # 50% of 50000
+      degrade_action: "merge_remaining_steps"    # 超限→合并剩余步骤
+    critic:
+      limit: 10000         # 20% of 50000
+      degrade_action: "skip_critic"              # 超限→跳过评审
+    synthesizer:
+      limit: 7500          # 15% of 50000
+      degrade_action: "fast_synthesize"          # 超限→快速综合
+
+execution:
+  max_iterations: 5
+  max_retries: 3
+  use_heuristics: true
+
+evaluation:
+  gaia_samples: 28
+  webshop_samples: 6
+  react_baseline: true
+  cost_ablation: true
+
+security:
+  ast_check: true
+  forbidden_calls:
+    - "__import__"
+    - "exec"
+    - "eval"
+    - "compile"
+    - "globals"
+    - "locals"
+    - "vars"
+    - "dir"
+    - "getattr"
+    - "setattr"
+    - "delattr"
+    - "open"
+    - "input"
+    - "breakpoint"
+    - "exit"
+    - "quit"
+  forbidden_ast_nodes:
+    - "Import"
+    - "ImportFrom"
+  pre_imports:
+    - "math"
+    - "json"
+    - "re"
+    - "datetime"

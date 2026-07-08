@@ -127,13 +127,33 @@ def planner_node(state: dict) -> dict:
             estimated_tokens_saved=saved,
         )
     else:
-        token_consumed = 0
-        try:
-            plan_data, token_consumed = call_llm_json(prompt, PLANNER_SYSTEM_PROMPT, role="planner")
-        except Exception as exc:
-            token_consumed = estimate_tokens(prompt + PLANNER_SYSTEM_PROMPT)
-            plan_data = {}
-            logs.append(f"[Planner] LLM计划解析失败: {type(exc).__name__}")
+        # 启发式未命中，检查 Planner 角色独立配额
+        from graph.token_budget import check_role_budget
+        planner_quota = check_role_budget(state, "planner")
+        if planner_quota["exceeded"]:
+            # Planner 超配额：强制走启发式兜底，跳过 LLM 调用
+            token_consumed = 0
+            fallback = build_heuristic_plan(query, merge_steps=policy["merge_steps"])
+            if fallback:
+                plan_data = fallback
+                logs.append(f"[Planner] 角色配额超限({planner_quota['action']})，强制走启发式规划")
+                scheduler_decisions = append_scheduler_decision(
+                    {**state, "token_used": token_used},
+                    "planner",
+                    "role_quota_exceeded",
+                    f"Planner配额超限，降级动作: {planner_quota['action']}",
+                )
+            else:
+                plan_data = {"steps": [], "complexity": "simple"}
+                logs.append("[Planner] 角色配额超限且启发式未命中，返回空计划")
+        else:
+            token_consumed = 0
+            try:
+                plan_data, token_consumed = call_llm_json(prompt, PLANNER_SYSTEM_PROMPT, role="planner")
+            except Exception as exc:
+                token_consumed = estimate_tokens(prompt + PLANNER_SYSTEM_PROMPT)
+                plan_data = {}
+                logs.append(f"[Planner] LLM计划解析失败: {type(exc).__name__}")
 
         # LLM 返回空计划时尝试启发式兜底（仅在启用启发式时）
         if not plan_data.get("steps") and use_heuristics:

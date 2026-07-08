@@ -18,7 +18,7 @@ LangGraph 状态图构建器
 """
 from langgraph.graph import StateGraph, END
 from graph.state import AgentState
-from graph.token_budget import get_budget_policy
+from graph.token_budget import get_budget_policy, check_role_budget
 from agents.planner import planner_node
 from agents.executor import executor_node, executor_retry_node
 from agents.critic import critic_node
@@ -45,6 +45,11 @@ def route_after_executor(state: dict) -> str:
     latest_risk = latest_step.get("risk", "medium")
     latest_result = results[-1] if results else {}
     policy = get_budget_policy(state, latest_risk)
+
+    # 角色独立配额检查：Executor 超配额直接强制收尾
+    executor_quota = check_role_budget(state, "executor")
+    if executor_quota["exceeded"]:
+        return "synthesizer"
 
     if policy["force_synthesize"]:
         return "synthesizer"
@@ -82,6 +87,13 @@ def route_after_critic(state: dict) -> str:
     plan = state.get("plan", [])
     current_idx = state.get("current_step_idx", 0)
     retry_feedback = state.get("retry_feedback", "")
+
+    # 角色独立配额检查：Critic 超配额时跳过评审，直接进入下一步
+    critic_quota = check_role_budget(state, "critic")
+    if critic_quota["exceeded"]:
+        if current_idx < len(plan):
+            return "executor"  # 跳过评审，直接执行下一步
+        return "synthesizer"
 
     # 预算检查
     if get_budget_policy(state)["force_synthesize"]:
@@ -135,6 +147,11 @@ def route_after_synthesizer(state: dict) -> str:
     2. 如果有反思（reflection 非空）且未达到最大迭代次数 → 回 Planner 重新规划
     3. 否则 → END（输出最终答案）
     """
+    # 角色独立配额检查：Synthesizer 超配额时直接终止
+    synth_quota = check_role_budget(state, "synthesizer")
+    if synth_quota["exceeded"]:
+        return END
+
     reflection = state.get("reflection", "")
     iteration = state.get("iteration", 0)
 
@@ -184,7 +201,7 @@ def build_graph(token_budget: int = DEFAULT_TOKEN_BUDGET):
     return compiled
 
 
-def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristics: bool = True) -> dict:
+def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristics: bool = True) -> AgentState:
     """
     创建初始状态
 
@@ -195,29 +212,13 @@ def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, u
         use_heuristics: 是否启用启发式规划/综合（成本消融时设为 False 以测量纯 LLM 消耗）
 
     返回:
-        初始状态字典
+        AgentState Pydantic 实例（兼容字典式访问）
     """
-    return {
-        "query": query,
-        "plan": [],
-        "current_step_idx": 0,
-        "complexity": "medium",
-        "results": [],
-        "critic_scores": [],
-        "retry_feedback": "",
-        "final_answer": "",
-        "answer_format": "text",
-        "token_used": 0,
-        "token_budget": token_budget,
-        "budget_degraded": False,
-        "role_token_used": {"planner": 0, "executor": 0, "critic": 0, "synthesizer": 0},
-        "budget_events": [],
-        "scheduler_decisions": [],
-        "reflection": "",
-        "iteration": 0,
-        "logs": [],
-        "use_heuristics": use_heuristics,
-    }
+    return AgentState(
+        query=query,
+        token_budget=token_budget,
+        use_heuristics=use_heuristics,
+    )
 
 
 def run_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristics: bool = True) -> dict:

@@ -132,7 +132,8 @@ def synthesizer_node(state: dict) -> dict:
 
     # 判断是否需要触发反思循环
     reflection = ""
-    post_policy = get_budget_policy({**state, "token_used": token_used + token_consumed})
+    _policy_state = dict(state) if not isinstance(state, dict) else state
+    post_policy = get_budget_policy({**_policy_state, "token_used": token_used + token_consumed})
     need_reflect = (
         (not direct_extractive_answer)
         and (not post_policy["force_synthesize"])
