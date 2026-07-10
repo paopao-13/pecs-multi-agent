@@ -381,6 +381,20 @@ pecs-multi-agent/
 ├── templates/
 │   └── index.html         # Web 界面
 │
+├── docs/                  # 工程文档
+│   ├── TECH_SELECTION.md  # 技术选型决策报告
+│   ├── PERFORMANCE.md     # 性能瓶颈分析
+│   ├── DEPLOYMENT.md      # 生产部署方案
+│   ├── PRD.md             # 产品需求文档
+│   ├── API.md             # API接口文档
+│   ├── SECURITY_AUDIT.md  # 安全审计报告
+│   ├── MONITORING.md      # 监控告警方案
+│   ├── VERSIONING.md      # 版本管理规范
+│   ├── FEEDBACK.md        # 用户反馈记录
+│   └── CODE_REVIEW.md     # 代码评审流程
+│
+├── Dockerfile             # 容器化部署
+│
 └── tests/                 # 单元测试
 ```
 
@@ -402,6 +416,25 @@ pecs-multi-agent/
 | 多模型支持 | 仅DeepSeek | 支持GPT-4/Claude/Qwen等多模型切换 | P2 |
 | 流式输出 | 批量返回 | SSE流式输出，提升用户体验 | P2 |
 | 分布式部署 | 单机串行 | Redis状态共享 + 多worker并行 | P3 |
+
+## 完整文档索引
+
+| 文档 | 说明 | 面试场景 |
+|------|------|----------|
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构设计文档（8章节） | "讲讲你的架构设计" |
+| [EXPERIMENT.md](EXPERIMENT.md) | 实验复现文档 | "评测怎么做的" |
+| [docs/TECH_SELECTION.md](docs/TECH_SELECTION.md) | 技术选型决策报告 | "为什么选LangGraph不选AutoGen" |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能瓶颈分析 | "性能瓶颈在哪" |
+| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署方案 | "怎么部署到生产" |
+| [docs/PRD.md](docs/PRD.md) | 产品需求文档 | "需求分析怎么做的" |
+| [docs/API.md](docs/API.md) | API接口文档 | "接口有哪些" |
+| [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告 | "沙箱真的安全吗" |
+| [docs/MONITORING.md](docs/MONITORING.md) | 监控告警方案 | "线上怎么监控" |
+| [docs/VERSIONING.md](docs/VERSIONING.md) | 版本管理规范 | "版本怎么管的" |
+| [docs/FEEDBACK.md](docs/FEEDBACK.md) | 用户反馈记录 | "有没有给别人用过" |
+| [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) | 代码评审流程 | "代码质量怎么保证" |
+| [CHANGELOG.md](CHANGELOG.md) | 版本变更日志 | "每个版本改了什么" |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 | "别人怎么参与" |
 
 ## License
 
