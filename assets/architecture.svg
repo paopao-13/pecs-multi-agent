@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520">
+  <defs>
+    <linearGradient id="plannerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#4F8EF7;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#2563EB;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="executorGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#10B981;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#059669;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="criticGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F59E0B;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#D97706;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="synthGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#8B5CF6;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#7C3AED;stop-opacity:1" />
+    </linearGradient>
+    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#64748B" />
+    </marker>
+    <marker id="arrowheadLoop" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
+      <polygon points="0 0, 10 3.5, 0 7" fill="#EF4444" />
+    </marker>
+  </defs>
+
+  <!-- Title -->
+  <text x="450" y="30" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="18" font-weight="bold" fill="#1E293B">PECS Multi-Agent Architecture</text>
+  <text x="450" y="50" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="12" fill="#64748B">Planner → Executor → Critic → Synthesizer (Plan-Execute-Reflect Loop)</text>
+
+  <!-- User -->
+  <rect x="20" y="220" width="80" height="50" rx="25" fill="#E2E8F0" stroke="#94A3B8" stroke-width="2"/>
+  <text x="60" y="250" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="bold" fill="#475569">User</text>
+
+  <!-- Arrow User -> Planner -->
+  <line x1="100" y1="245" x2="135" y2="245" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- Planner -->
+  <rect x="140" y="200" width="120" height="90" rx="8" fill="url(#plannerGrad)" stroke="#1E40AF" stroke-width="1"/>
+  <text x="200" y="225" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="15" font-weight="bold" fill="white">Planner</text>
+  <text x="200" y="245" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#DBEAFE">temp=0.3</text>
+  <text x="200" y="262" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#DBEAFE">任务拆解 + 复杂度评估</text>
+  <text x="200" y="278" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#DBEAFE">启发式优先, 零Token</text>
+
+  <!-- Arrow Planner -> Executor -->
+  <line x1="260" y1="245" x2="295" y2="245" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- Executor -->
+  <rect x="300" y="200" width="120" height="90" rx="8" fill="url(#executorGrad)" stroke="#047857" stroke-width="1"/>
+  <text x="360" y="225" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="15" font-weight="bold" fill="white">Executor</text>
+  <text x="360" y="245" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#D1FAE5">temp=0.0</text>
+  <text x="360" y="262" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#D1FAE5">工具调用 + 代码执行</text>
+  <text x="360" y="278" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#D1FAE5">AST安全沙箱</text>
+
+  <!-- Arrow Executor -> Critic -->
+  <line x1="420" y1="245" x2="455" y2="245" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- Critic -->
+  <rect x="460" y="200" width="120" height="90" rx="8" fill="url(#criticGrad)" stroke="#B45309" stroke-width="1"/>
+  <text x="520" y="225" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="15" font-weight="bold" fill="white">Critic</text>
+  <text x="520" y="245" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#FEF3C7">temp=0.1</text>
+  <text x="520" y="262" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#FEF3C7">三维评分(1-5)</text>
+  <text x="520" y="278" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#FEF3C7">准确/一致/完整</text>
+
+  <!-- Arrow Critic -> Synthesizer -->
+  <line x1="580" y1="245" x2="615" y2="245" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+
+  <!-- Synthesizer -->
+  <rect x="620" y="200" width="120" height="90" rx="8" fill="url(#synthGrad)" stroke="#6D28D9" stroke-width="1"/>
+  <text x="680" y="225" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="15" font-weight="bold" fill="white">Synthesizer</text>
+  <text x="680" y="245" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#EDE9FE">temp=0.5</text>
+  <text x="680" y="262" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#EDE9FE">全局综合 + 反思</text>
+  <text x="680" y="278" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="10" fill="#EDE9FE">确定性抽取路径</text>
+
+  <!-- Arrow Synthesizer -> Output -->
+  <line x1="740" y1="245" x2="800" y2="245" stroke="#64748B" stroke-width="2" marker-end="url(#arrowhead)"/>
+  <rect x="805" y="220" width="75" height="50" rx="25" fill="#E2E8F0" stroke="#94A3B8" stroke-width="2"/>
+  <text x="842" y="250" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="bold" fill="#475569">Answer</text>
+
+  <!-- Reflect Loop (red dashed) -->
+  <path d="M 520 200 Q 520 120 360 120 Q 200 120 200 200" fill="none" stroke="#EF4444" stroke-width="2" stroke-dasharray="6,4" marker-end="url(#arrowheadLoop)"/>
+  <text x="360" y="110" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#EF4444" font-weight="bold">Reflect: 重规划 (max 5 iterations)</text>
+
+  <!-- Critic Retry Loop -->
+  <path d="M 520 290 Q 520 340 360 340 Q 360 340 360 290" fill="none" stroke="#F59E0B" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#arrowhead)"/>
+  <text x="440" y="360" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" fill="#D97706" font-weight="bold">Retry (max 3)</text>
+
+  <!-- Token Budget Section -->
+  <rect x="140" y="400" width="660" height="100" rx="8" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1"/>
+  <text x="470" y="422" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="13" font-weight="bold" fill="#334155">Token Budget Degradation (三级降级机制)</text>
+
+  <!-- Level bars -->
+  <rect x="160" y="435" width="180" height="24" rx="4" fill="#10B981" opacity="0.8"/>
+  <text x="250" y="451" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" font-weight="bold" fill="white">Level 0: Normal (0-70%)</text>
+
+  <rect x="360" y="435" width="140" height="24" rx="4" fill="#F59E0B" opacity="0.8"/>
+  <text x="430" y="451" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" font-weight="bold" fill="white">L1: Skip Critic (70%)</text>
+
+  <rect x="520" y="435" width="120" height="24" rx="4" fill="#EF4444" opacity="0.8"/>
+  <text x="580" y="451" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" font-weight="bold" fill="white">L2: Merge (85%)</text>
+
+  <rect x="660" y="435" width="120" height="24" rx="4" fill="#7F1D1D" opacity="0.9"/>
+  <text x="720" y="451" text-anchor="middle" font-family="Segoe UI, sans-serif" font-size="11" font-weight="bold" fill="white">L3: Force (95%)</text>
+
+  <text x="160" y="478" font-family="Segoe UI, sans-serif" font-size="10" fill="#64748B">→ 跳过低风险Critic</text>
+  <text x="360" y="478" font-family="Segoe UI, sans-serif" font-size="10" fill="#64748B">→ 合并剩余步骤</text>
+  <text x="520" y="478" font-family="Segoe UI, sans-serif" font-size="10" fill="#64748B">→ 强制综合输出</text>
+  <text x="660" y="478" font-family="Segoe UI, sans-serif" font-size="10" fill="#64748B">→ 预算耗尽终止</text>
+</svg>

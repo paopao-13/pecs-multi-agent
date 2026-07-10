@@ -1,0 +1,255 @@
+{
+  "statistics_type": "critic_error_interception",
+  "results_dir": "results",
+  "total_files_analyzed": 15,
+  "total_interceptions": 8,
+  "total_tasks_intercepted": 2,
+  "correction_success_count": 2,
+  "correction_success_rate": 1.0,
+  "error_type_breakdown": {
+    "tool_param_error": 8,
+    "plan_logic_omission": 0,
+    "result_incomplete": 0,
+    "other": 0
+  },
+  "error_type_labels": {
+    "tool_param_error": "参数错误",
+    "plan_logic_omission": "逻辑遗漏",
+    "result_incomplete": "结果不完整",
+    "other": "其他"
+  },
+  "files": [
+    {
+      "filename": "ablation_full_pecs.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "ablation_no_critic.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "ablation_no_synthesizer.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "ablation_report.json",
+      "details_sources": [
+        "configs[0].details",
+        "configs[1].details",
+        "configs[2].details",
+        "configs[3].details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "ablation_single_agent.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "comparison_validation.json",
+      "details_sources": [
+        "multi_agent.details",
+        "react_baseline.details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "complex_comparison.json",
+      "details_sources": [
+        "multi_agent.details",
+        "react_baseline.details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "cost_ablation.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "final_comparison.json",
+      "details_sources": [
+        "multi_agent.details",
+        "react_baseline.details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "gaia_multi_agent.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 4,
+      "error_types": {
+        "tool_param_error": 4
+      },
+      "correction_success": 1,
+      "tasks_with_interceptions": [
+        {
+          "task_id": "gaia_l1_006",
+          "question": "中国有多少个省级行政区？这个数字乘以5等于多少？",
+          "interception_count": 4,
+          "interceptions": [
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            },
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            },
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            },
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            }
+          ],
+          "final_correct": true,
+          "correction_successful": true,
+          "source": "details"
+        }
+      ]
+    },
+    {
+      "filename": "gaia_react_baseline.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "target_report.json",
+      "details_sources": [
+        "raw.gaia_multi.details",
+        "raw.gaia_react.details",
+        "raw.webshop_multi.details",
+        "raw.webshop_react.details",
+        "raw.cost_ablation.details"
+      ],
+      "total_interceptions": 4,
+      "error_types": {
+        "tool_param_error": 4
+      },
+      "correction_success": 1,
+      "tasks_with_interceptions": [
+        {
+          "task_id": "gaia_l1_006",
+          "question": "中国有多少个省级行政区？这个数字乘以5等于多少？",
+          "interception_count": 4,
+          "interceptions": [
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            },
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            },
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            },
+            {
+              "step_id": 1,
+              "feedback": "搜索结果信息过少，建议细化搜索关键词。",
+              "error_type": "tool_param_error",
+              "raw_log": "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。"
+            }
+          ],
+          "final_correct": true,
+          "correction_successful": true,
+          "source": "raw.gaia_multi.details"
+        }
+      ]
+    },
+    {
+      "filename": "three_way_validation.json",
+      "details_sources": [],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "webshop_multi_agent.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    },
+    {
+      "filename": "webshop_react_baseline.json",
+      "details_sources": [
+        "details"
+      ],
+      "total_interceptions": 0,
+      "error_types": {},
+      "correction_success": 0,
+      "tasks_with_interceptions": []
+    }
+  ]
+}

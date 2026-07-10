@@ -1,0 +1,1063 @@
+{
+  "mode": "sample/mock",
+  "targets": {
+    "gaia_l1_accuracy": 0.75,
+    "gaia_l1_improvement_pp": 15.0,
+    "webshop_success_improvement_pp": 18.0,
+    "token_savings_pct": 30.0
+  },
+  "gaia_l1": {
+    "multi_agent_accuracy": 1.0,
+    "react_accuracy": 0.7857,
+    "improvement_pp": 21.43,
+    "target_met": true
+  },
+  "webshop": {
+    "multi_agent_success_rate": 1.0,
+    "react_success_rate": 0.6667,
+    "improvement_pp": 33.33,
+    "target_met": true
+  },
+  "cost": {
+    "mode": "multi-agent vs ReAct (end-to-end)",
+    "multi_agent_avg_tokens": 53,
+    "react_avg_tokens": 402,
+    "ablation_budgeted_avg_tokens": 969,
+    "ablation_unbudgeted_avg_tokens": 1097,
+    "ablation_token_savings_pct": 11.7,
+    "token_savings_pct": 86.82,
+    "target_met": true
+  },
+  "raw": {
+    "gaia_multi": {
+      "agent_type": "multi_agent",
+      "total_samples": 28,
+      "correct_count": 28,
+      "accuracy": 1.0,
+      "total_tokens": 1480,
+      "avg_tokens_per_task": 53,
+      "details": [
+        {
+          "task_id": "gaia_l1_001",
+          "question": "Python编程语言是哪一年发布的？用2024减去这个年份得到多少？",
+          "ground_truth": "33",
+          "predicted": "33",
+          "correct": true,
+          "tokens_used": 24,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~366 tokens）",
+            "[Planner] 生成 2 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索Python编程语言发布年份 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] Python 是一种高级编程语言，由 Guido van Rossum 于 1991 年创建。强调代码可读性和简洁语法。...",
+            "[Critic] 规则验证步骤 1: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Executor] 执行步骤 2: 用2024减去Python发布年份 (工具: python)",
+            "[Executor] 步骤 2 完成: 输出:\n33...",
+            "[Critic] 规则验证步骤 2: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Synthesizer] 开始综合 2 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_002",
+          "question": "地球到太阳的平均距离大约是多少公里？除以光速(约30万km/s)再除以60，结果是多少分钟？",
+          "ground_truth": "8.3",
+          "predicted": "8.3",
+          "correct": true,
+          "tokens_used": 2,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~370 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算日地平均距离除以光速再除以60得到分钟数 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n8.3...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_003",
+          "question": "Fibonacci数列的第20项是多少？",
+          "ground_truth": "6765",
+          "predicted": "6765",
+          "correct": true,
+          "tokens_used": 2,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~361 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: simple, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算Fibonacci数列的第20项 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n6765...",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_004",
+          "question": "2024年诺贝尔物理学奖得主中，谁曾经获得过图灵奖？",
+          "ground_truth": "Geoffrey Hinton",
+          "predicted": "Geoffrey Hinton",
+          "correct": true,
+          "tokens_used": 46,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~363 tokens）",
+            "[Planner] 生成 3 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索2024年诺贝尔物理学奖得主名单 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] Geoffrey Everest Hinton，英国出生的加拿大计算机科学家，出生于1947年12月6日。...",
+            "[Critic] 规则验证步骤 1: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Executor] 执行步骤 2: 搜索诺贝尔物理学奖得主中谁获得过图灵奖 (工具: search)",
+            "[Executor] 步骤 2 完成: [模拟搜索] Geoffrey Everest Hinton，英国出生的加拿大计算机科学家，出生于1947年12月6日。...",
+            "[Critic] 规则验证步骤 2: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Executor] 执行步骤 3: 交叉比对诺贝尔物理学奖得主和图灵奖得主 (工具: python)",
+            "[Executor] 步骤 3 完成: 输出:\nGeoffrey Hinton...",
+            "[Critic] 规则验证步骤 3: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 3 合格，进入下一环节",
+            "[Synthesizer] 开始综合 3 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_005",
+          "question": "100的阶乘(100!)有多少位数字？",
+          "ground_truth": "158",
+          "predicted": "158",
+          "correct": true,
+          "tokens_used": 2,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~361 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: simple, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算100的阶乘并统计其位数 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n158...",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_006",
+          "question": "中国有多少个省级行政区？这个数字乘以5等于多少？",
+          "ground_truth": "170",
+          "predicted": "170",
+          "correct": true,
+          "tokens_used": 1199,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~362 tokens）",
+            "[Planner] 生成 2 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索中国省级行政区的数量 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 中国共有34个省级行政区。...",
+            "[Critic] 规则验证步骤 1: 评分 2.7 (搜索结果信息过少，建议细化搜索关键词。)",
+            "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。",
+            "[Executor] 重试步骤 1 (第 1 次重试)",
+            "[Executor] 执行步骤 1: 搜索中国省级行政区的数量 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 中国共有34个省级行政区。...",
+            "[Critic] 规则验证步骤 1: 评分 2.7 (搜索结果信息过少，建议细化搜索关键词。)",
+            "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。",
+            "[Executor] 重试步骤 1 (第 2 次重试)",
+            "[Executor] 执行步骤 1: 搜索中国省级行政区的数量 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 中国共有34个省级行政区。...",
+            "[Critic] 规则验证步骤 1: 评分 2.7 (搜索结果信息过少，建议细化搜索关键词。)",
+            "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。",
+            "[Executor] 重试步骤 1 (第 3 次重试)",
+            "[Executor] 执行步骤 1: 搜索中国省级行政区的数量 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 中国共有34个省级行政区。...",
+            "[Critic] 规则验证步骤 1: 评分 2.7 (搜索结果信息过少，建议细化搜索关键词。)",
+            "[Critic] 步骤 1 不合格，反馈: 搜索结果信息过少，建议细化搜索关键词。",
+            "[Executor] 执行步骤 2: 用省级行政区数量乘以5 (工具: python)",
+            "[Executor] 步骤 2 完成: 输出:\n170...",
+            "[Critic] 规则验证步骤 2: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Synthesizer] 开始综合 5 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_007",
+          "question": "太阳系行星按体积从大到小排序，第4大的行星是哪个？",
+          "ground_truth": "海王星",
+          "predicted": "海王星",
+          "correct": true,
+          "tokens_used": 23,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~363 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: simple, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索太阳系行星按体积从大到小排序 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 太阳系行星按体积从大到小排序：木星 > 土星 > 天王星 > 海王星 > 地球 > 金星 > 火星 > 水星。第4大的是海王星。...",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_008",
+          "question": "2的100次方的结果首位数字是什么？",
+          "ground_truth": "1",
+          "predicted": "1",
+          "correct": true,
+          "tokens_used": 1,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~360 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: simple, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算2的100次方，并提取结果首位数字 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n1...",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_009",
+          "question": "一年中白昼最短的节气叫什么？那天的日期大约是几月几号？",
+          "ground_truth": "冬至 12月21日",
+          "predicted": "冬至 12月21日",
+          "correct": true,
+          "tokens_used": 12,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~363 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: simple, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索一年中白昼最短的节气及日期 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 冬至是北半球白昼最短的一天，通常在每年12月21日或22日。...",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_010",
+          "question": "光速约为每秒30万公里，从地球到月球的平均距离约为38.4万公里，光从地球到月球需要多少秒？结果保留一位小数。",
+          "ground_truth": "1.3",
+          "predicted": "1.3",
+          "correct": true,
+          "tokens_used": 2,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~373 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: simple, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算光从地球到月球所需秒数并保留一位小数 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n1.3...",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_011",
+          "question": "Geoffrey Hinton 出生于哪一年？用2024减去他的出生年份，他获得2024年诺贝尔物理学奖时是多少岁？",
+          "ground_truth": "77",
+          "predicted": "77",
+          "correct": true,
+          "tokens_used": 22,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~374 tokens）",
+            "[Planner] 生成 2 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索Geoffrey Hinton出生年份 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] Geoffrey Everest Hinton，英国出生的加拿大计算机科学家，出生于1947年12月6日。...",
+            "[Critic] 规则验证步骤 1: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Executor] 执行步骤 2: 用2024减去出生年份计算年龄 (工具: python)",
+            "[Executor] 步骤 2 完成: 输出:\n77...",
+            "[Critic] 规则验证步骤 2: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Synthesizer] 开始综合 2 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_012",
+          "question": "请搜索2024年巴黎奥运会中国代表团获得的金牌数，再搜索2020年东京奥运会中国代表团的金牌数，计算两次金牌数的差值。",
+          "ground_truth": "2",
+          "predicted": "2",
+          "correct": true,
+          "tokens_used": 31,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~374 tokens）",
+            "[Planner] 生成 3 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索2024年巴黎奥运会中国代表团金牌数 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 2024年巴黎奥运会，中国体育代表团获得40枚金牌、27枚银牌、24枚铜牌。...",
+            "[Critic] 规则验证步骤 1: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Executor] 执行步骤 2: 搜索2020年东京奥运会中国代表团金牌数 (工具: search)",
+            "[Executor] 步骤 2 完成: [模拟搜索] 2020年东京奥运会，中国体育代表团获得38枚金牌、32枚银牌、18枚铜牌。...",
+            "[Critic] 规则验证步骤 2: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Executor] 执行步骤 3: 计算两次金牌数差值 (工具: python)",
+            "[Executor] 步骤 3 完成: 输出:\n2...",
+            "[Critic] 规则验证步骤 3: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 3 合格，进入下一环节",
+            "[Synthesizer] 开始综合 3 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_013",
+          "question": "请搜索地球赤道周长约多少公里，计算如果一个人以每小时5公里的速度绕赤道步行一圈，需要多少天？结果保留整数。",
+          "ground_truth": "334",
+          "predicted": "334",
+          "correct": true,
+          "tokens_used": 13,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~372 tokens）",
+            "[Planner] 生成 2 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索地球赤道周长 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 地球赤道周长约为40075公里（约40076公里）。...",
+            "[Critic] 规则验证步骤 1: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Executor] 执行步骤 2: 根据赤道周长和步行速度计算所需天数 (工具: python)",
+            "[Executor] 步骤 2 完成: 输出:\n334...",
+            "[Critic] 规则验证步骤 2: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Synthesizer] 开始综合 2 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_014",
+          "question": "请搜索2024年诺贝尔化学奖的三位得主姓名，然后判断其中是否有人的名字以字母'D'开头？",
+          "ground_truth": "是",
+          "predicted": "是",
+          "correct": true,
+          "tokens_used": 37,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~369 tokens）",
+            "[Planner] 生成 2 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索2024年诺贝尔化学奖得主 (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 2024年诺贝尔物理学奖授予 John Hopfield 和 Geoffrey Hinton。2024年诺贝尔化学奖授予 David Baker、Demis Hassabis 和 Joh...",
+            "[Critic] 规则验证步骤 1: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Executor] 执行步骤 2: 判断三位得主中是否有人名字以D开头 (工具: python)",
+            "[Executor] 步骤 2 完成: 输出:\n是...",
+            "[Critic] 规则验证步骤 2: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Synthesizer] 开始综合 2 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_015",
+          "question": "请搜索俄罗斯陆地面积约多少万平方公里，除以中国陆地面积约960万平方公里，结果保留一位小数。",
+          "ground_truth": "1.8",
+          "predicted": "1.8",
+          "correct": true,
+          "tokens_used": 16,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~370 tokens）",
+            "[Planner] 生成 2 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 搜索俄罗斯陆地面积（万平方公里） (工具: search)",
+            "[Executor] 步骤 1 完成: [模拟搜索] 俄罗斯陆地面积约为1709.82万平方公里，是世界上陆地面积最大的国家。...",
+            "[Critic] 规则验证步骤 1: 评分 4.0 (搜索结果有效。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Executor] 执行步骤 2: 计算俄罗斯面积除以中国面积960万平方公里 (工具: python)",
+            "[Executor] 步骤 2 完成: 输出:\n1.8...",
+            "[Critic] 规则验证步骤 2: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 2 合格，进入下一环节",
+            "[Synthesizer] 开始综合 2 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_016",
+          "question": "计算2的30次方减去2的20次方，结果是多少？",
+          "ground_truth": "1073286912",
+          "predicted": "1073286912",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~362 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算2的30次方减去2的20次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n1072693248...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_017",
+          "question": "17的5次方是多少？",
+          "ground_truth": "1419857",
+          "predicted": "1419857",
+          "correct": true,
+          "tokens_used": 3,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~358 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算17的5次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n1419857...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_018",
+          "question": "前20个正整数的平方和是多少？即1²+2²+3²+...+20²。",
+          "ground_truth": "2870",
+          "predicted": "2870",
+          "correct": true,
+          "tokens_used": 2,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~365 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算前20个正整数的平方和 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n2870...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_019",
+          "question": "13的阶乘(13!)是多少？",
+          "ground_truth": "6227020800",
+          "predicted": "6227020800",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~359 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算13的阶乘 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n6227020800...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_020",
+          "question": "从2到50的所有偶数的和是多少？即2+4+6+...+50。",
+          "ground_truth": "650",
+          "predicted": "650",
+          "correct": true,
+          "tokens_used": 2,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~364 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算2到50所有偶数的和 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n650...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_021",
+          "question": "3的18次方减去3的12次方，结果是多少？",
+          "ground_truth": "386889048",
+          "predicted": "386889048",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~361 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算3的18次方减去3的12次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n386889048...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_022",
+          "question": "7的10次方是多少？",
+          "ground_truth": "282475249",
+          "predicted": "282475249",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~358 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算7的10次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n282475249...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_023",
+          "question": "2的50次方减去2的45次方，结果是多少？",
+          "ground_truth": "1090715534753792",
+          "predicted": "1090715534753792",
+          "correct": true,
+          "tokens_used": 6,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~361 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算2的50次方减去2的45次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n1090715534753792...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_024",
+          "question": "11的8次方是多少？",
+          "ground_truth": "214358881",
+          "predicted": "214358881",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~358 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算11的8次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n214358881...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_025",
+          "question": "6的12次方是多少？",
+          "ground_truth": "2176782336",
+          "predicted": "2176782336",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~358 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算6的12次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n2176782336...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_026",
+          "question": "5的12次方减去5的8次方，结果是多少？",
+          "ground_truth": "243750000",
+          "predicted": "243750000",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~361 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算5的12次方减去5的8次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n243750000...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_027",
+          "question": "3的15次方减去3的10次方，结果是多少？",
+          "ground_truth": "14289858",
+          "predicted": "14289858",
+          "correct": true,
+          "tokens_used": 4,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~361 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算3的15次方减去3的10次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n14289858...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_028",
+          "question": "7的8次方减去7的5次方，结果是多少？",
+          "ground_truth": "5747994",
+          "predicted": "5747994",
+          "correct": true,
+          "tokens_used": 3,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~361 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: complex, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 计算7的8次方减去7的5次方 (工具: python)",
+            "[Executor] 步骤 1 完成: 输出:\n5747994...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (Python 执行成功，结果完整且正确。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        }
+      ]
+    },
+    "gaia_react": {
+      "agent_type": "react_baseline",
+      "total_samples": 28,
+      "correct_count": 22,
+      "accuracy": 0.7857,
+      "total_tokens": 11243,
+      "avg_tokens_per_task": 402,
+      "details": [
+        {
+          "task_id": "gaia_l1_001",
+          "question": "Python编程语言是哪一年发布的？用2024减去这个年份得到多少？",
+          "ground_truth": "33",
+          "predicted": "Python编程语言于1991年发布，2024减去1991等于33。",
+          "correct": true,
+          "tokens_used": 284
+        },
+        {
+          "task_id": "gaia_l1_002",
+          "question": "地球到太阳的平均距离大约是多少公里？除以光速(约30万km/s)再除以60，结果是多少分钟？",
+          "ground_truth": "8.3",
+          "predicted": "地球到太阳的平均距离约为 1.496 亿公里。除以光速（约30万公里/秒）得到约 498.67 秒，再除以60，结果约为 8.31 分钟（更精确地说是 8 分 18.7 秒左右）。",
+          "correct": true,
+          "tokens_used": 433
+        },
+        {
+          "task_id": "gaia_l1_003",
+          "question": "Fibonacci数列的第20项是多少？",
+          "ground_truth": "6765",
+          "predicted": "Fibonacci数列的第20项是6765。",
+          "correct": true,
+          "tokens_used": 316
+        },
+        {
+          "task_id": "gaia_l1_004",
+          "question": "2024年诺贝尔物理学奖得主中，谁曾经获得过图灵奖？",
+          "ground_truth": "Geoffrey Hinton",
+          "predicted": "2024年诺贝尔物理学奖得主中，杰弗里·辛顿（Geoffrey Hinton）曾获得过图灵奖（2018年）。",
+          "correct": true,
+          "tokens_used": 537
+        },
+        {
+          "task_id": "gaia_l1_005",
+          "question": "100的阶乘(100!)有多少位数字？",
+          "ground_truth": "158",
+          "predicted": "100! 有 158 位数字。",
+          "correct": true,
+          "tokens_used": 680
+        },
+        {
+          "task_id": "gaia_l1_006",
+          "question": "中国有多少个省级行政区？这个数字乘以5等于多少？",
+          "ground_truth": "170",
+          "predicted": "中国有34个省级行政区，这个数字乘以5等于170。",
+          "correct": true,
+          "tokens_used": 292
+        },
+        {
+          "task_id": "gaia_l1_007",
+          "question": "太阳系行星按体积从大到小排序，第4大的行星是哪个？",
+          "ground_truth": "海王星",
+          "predicted": "海王星",
+          "correct": true,
+          "tokens_used": 552
+        },
+        {
+          "task_id": "gaia_l1_008",
+          "question": "2的100次方的结果首位数字是什么？",
+          "ground_truth": "1",
+          "predicted": "2的100次方的结果首位数字是1。",
+          "correct": true,
+          "tokens_used": 258
+        },
+        {
+          "task_id": "gaia_l1_009",
+          "question": "一年中白昼最短的节气叫什么？那天的日期大约是几月几号？",
+          "ground_truth": "冬至 12月21日",
+          "predicted": "一年中白昼最短的节气是冬至，那天的日期大约是12月22日（通常在12月21日至23日之间）。",
+          "correct": true,
+          "tokens_used": 337
+        },
+        {
+          "task_id": "gaia_l1_010",
+          "question": "光速约为每秒30万公里，从地球到月球的平均距离约为38.4万公里，光从地球到月球需要多少秒？结果保留一位小数。",
+          "ground_truth": "1.3",
+          "predicted": "1.3秒",
+          "correct": true,
+          "tokens_used": 253
+        },
+        {
+          "task_id": "gaia_l1_011",
+          "question": "Geoffrey Hinton 出生于哪一年？用2024减去他的出生年份，他获得2024年诺贝尔物理学奖时是多少岁？",
+          "ground_truth": "77",
+          "predicted": "Geoffrey Hinton 出生于1947年。用2024减去1947得到77，因此他获得2024年诺贝尔物理学奖时是77岁。",
+          "correct": true,
+          "tokens_used": 790
+        },
+        {
+          "task_id": "gaia_l1_012",
+          "question": "请搜索2024年巴黎奥运会中国代表团获得的金牌数，再搜索2020年东京奥运会中国代表团的金牌数，计算两次金牌数的差值。",
+          "ground_truth": "2",
+          "predicted": "2024年巴黎奥运会中国代表团获得40枚金牌，2020年东京奥运会中国代表团获得38枚金牌，两次金牌数的差值为2枚。",
+          "correct": true,
+          "tokens_used": 844
+        },
+        {
+          "task_id": "gaia_l1_013",
+          "question": "请搜索地球赤道周长约多少公里，计算如果一个人以每小时5公里的速度绕赤道步行一圈，需要多少天？结果保留整数。",
+          "ground_truth": "334",
+          "predicted": "地球赤道周长约40,075公里。以每小时5公里的速度步行绕赤道一圈，需要约334天。",
+          "correct": true,
+          "tokens_used": 407
+        },
+        {
+          "task_id": "gaia_l1_014",
+          "question": "请搜索2024年诺贝尔化学奖的三位得主姓名，然后判断其中是否有人的名字以字母'D'开头？",
+          "ground_truth": "是",
+          "predicted": "2024年诺贝尔化学奖的三位得主是：David Baker、Demis Hassabis 和 John Jumper。其中，David Baker 和 Demis Hassabis 的名字以字母'D'开头，因此答案是：有。",
+          "correct": true,
+          "tokens_used": 363
+        },
+        {
+          "task_id": "gaia_l1_015",
+          "question": "请搜索俄罗斯陆地面积约多少万平方公里，除以中国陆地面积约960万平方公里，结果保留一位小数。",
+          "ground_truth": "1.8",
+          "predicted": "俄罗斯陆地面积约1710万平方公里，除以中国陆地面积约960万平方公里，结果约为1.8。",
+          "correct": true,
+          "tokens_used": 1035
+        },
+        {
+          "task_id": "gaia_l1_016",
+          "question": "计算2的30次方减去2的20次方，结果是多少？",
+          "ground_truth": "1073286912",
+          "predicted": "2的30次方减去2的20次方的结果是1072693248。",
+          "correct": false,
+          "tokens_used": 260
+        },
+        {
+          "task_id": "gaia_l1_017",
+          "question": "17的5次方是多少？",
+          "ground_truth": "1419857",
+          "predicted": "17的5次方是1,419,857。",
+          "correct": true,
+          "tokens_used": 225
+        },
+        {
+          "task_id": "gaia_l1_018",
+          "question": "前20个正整数的平方和是多少？即1²+2²+3²+...+20²。",
+          "ground_truth": "2870",
+          "predicted": "前20个正整数的平方和是2870。",
+          "correct": true,
+          "tokens_used": 570
+        },
+        {
+          "task_id": "gaia_l1_019",
+          "question": "13的阶乘(13!)是多少？",
+          "ground_truth": "6227020800",
+          "predicted": "13的阶乘(13!)是 6,227,020,800。",
+          "correct": true,
+          "tokens_used": 254
+        },
+        {
+          "task_id": "gaia_l1_020",
+          "question": "从2到50的所有偶数的和是多少？即2+4+6+...+50。",
+          "ground_truth": "650",
+          "predicted": "从2到50的所有偶数的和是650。",
+          "correct": true,
+          "tokens_used": 659
+        },
+        {
+          "task_id": "gaia_l1_021",
+          "question": "3的18次方减去3的12次方，结果是多少？",
+          "ground_truth": "386889048",
+          "predicted": "387381408",
+          "correct": false,
+          "tokens_used": 228
+        },
+        {
+          "task_id": "gaia_l1_022",
+          "question": "7的10次方是多少？",
+          "ground_truth": "282475249",
+          "predicted": "7的10次方是282475249。",
+          "correct": true,
+          "tokens_used": 230
+        },
+        {
+          "task_id": "gaia_l1_023",
+          "question": "2的50次方减去2的45次方，结果是多少？",
+          "ground_truth": "1090715534753792",
+          "predicted": "2的50次方减去2的45次方的结果是 32,985,348,833,280。",
+          "correct": false,
+          "tokens_used": 251
+        },
+        {
+          "task_id": "gaia_l1_024",
+          "question": "11的8次方是多少？",
+          "ground_truth": "214358881",
+          "predicted": "11的8次方是214,358,881。",
+          "correct": true,
+          "tokens_used": 224
+        },
+        {
+          "task_id": "gaia_l1_025",
+          "question": "6的12次方是多少？",
+          "ground_truth": "2176782336",
+          "predicted": "6的12次方是2,176,782,336。",
+          "correct": true,
+          "tokens_used": 224
+        },
+        {
+          "task_id": "gaia_l1_026",
+          "question": "5的12次方减去5的8次方，结果是多少？",
+          "ground_truth": "243750000",
+          "predicted": "5的12次方减去5的8次方的结果是244,140,000。",
+          "correct": false,
+          "tokens_used": 247
+        },
+        {
+          "task_id": "gaia_l1_027",
+          "question": "3的15次方减去3的10次方，结果是多少？",
+          "ground_truth": "14289858",
+          "predicted": "3的15次方减去3的10次方的结果是14,276,736。",
+          "correct": false,
+          "tokens_used": 244
+        },
+        {
+          "task_id": "gaia_l1_028",
+          "question": "7的8次方减去7的5次方，结果是多少？",
+          "ground_truth": "5747994",
+          "predicted": "7的8次方减去7的5次方的结果是 5,762,400。",
+          "correct": false,
+          "tokens_used": 246
+        }
+      ]
+    },
+    "webshop_multi": {
+      "benchmark": "webshop_local_adapter",
+      "mode": "sample/mock",
+      "agent_type": "multi_agent",
+      "total_samples": 6,
+      "success_count": 6,
+      "success_rate": 1.0,
+      "total_tokens": 277,
+      "avg_tokens_per_task": 46,
+      "details": [
+        {
+          "task_id": "webshop_001",
+          "instruction": "Find an organic jasmine green tea with at least 100 bags under $20.",
+          "target_id": "ws_tea_001",
+          "predicted": "ws_tea_001 | Organic Jasmine Green Tea 100 bags",
+          "success": true,
+          "tokens_used": 49,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~380 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 根据购物需求检索并选择最匹配的商品 (工具: webshop)",
+            "[Executor] 步骤 1 完成: SELECTED: ws_tea_001 | Organic Jasmine Green Tea 100 bags\nprice=18.99 rating=4.7\nmatched_attributes=...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (WebShop商品选择满足约束。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "webshop_002",
+          "instruction": "Find a decaf chamomile herbal tea under $16.",
+          "target_id": "ws_tea_002",
+          "predicted": "ws_tea_002 | Decaf Chamomile Herbal Tea 80 bags",
+          "success": true,
+          "tokens_used": 44,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~372 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 根据购物需求检索并选择最匹配的商品 (工具: webshop)",
+            "[Executor] 步骤 1 完成: SELECTED: ws_tea_002 | Decaf Chamomile Herbal Tea 80 bags\nprice=14.5 rating=4.5\nmatched_attributes=d...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (WebShop商品选择满足约束。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "webshop_003",
+          "instruction": "Need a USB-C 65W GaN dual port charger under $35.",
+          "target_id": "ws_usb_001",
+          "predicted": "ws_usb_001 | USB-C 65W GaN Charger dual port",
+          "success": true,
+          "tokens_used": 44,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~374 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 根据购物需求检索并选择最匹配的商品 (工具: webshop)",
+            "[Executor] 步骤 1 完成: SELECTED: ws_usb_001 | USB-C 65W GaN Charger dual port\nprice=29.99 rating=4.6\nmatched_attributes=usb...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (WebShop商品选择满足约束。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "webshop_004",
+          "instruction": "Buy an insulated stainless steel 24 oz water bottle under $25.",
+          "target_id": "ws_bottle_001",
+          "predicted": "ws_bottle_001 | Insulated Stainless Steel Water Bottle 24 oz",
+          "success": true,
+          "tokens_used": 53,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~378 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 根据购物需求检索并选择最匹配的商品 (工具: webshop)",
+            "[Executor] 步骤 1 完成: SELECTED: ws_bottle_001 | Insulated Stainless Steel Water Bottle 24 oz\nprice=22.0 rating=4.8\nmatched...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (WebShop商品选择满足约束。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "webshop_005",
+          "instruction": "I want a silent wireless ergonomic mouse under $30.",
+          "target_id": "ws_mouse_001",
+          "predicted": "ws_mouse_001 | Silent Wireless Ergonomic Mouse",
+          "success": true,
+          "tokens_used": 44,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~375 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 根据购物需求检索并选择最匹配的商品 (工具: webshop)",
+            "[Executor] 步骤 1 完成: SELECTED: ws_mouse_001 | Silent Wireless Ergonomic Mouse\nprice=24.99 rating=4.5\nmatched_attributes=s...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (WebShop商品选择满足约束。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        },
+        {
+          "task_id": "webshop_006",
+          "instruction": "Find a compact USB-C charger under $18.",
+          "target_id": "ws_usb_002",
+          "predicted": "ws_usb_002 | USB-C 30W Compact Charger single port",
+          "success": true,
+          "tokens_used": 43,
+          "logs": [
+            "[Planner] 启发式规划命中，跳过LLM调用（节省 ~371 tokens）",
+            "[Planner] 生成 1 个步骤的计划 (复杂度: medium, 消耗 0 tokens)",
+            "[Executor] 执行步骤 1: 根据购物需求检索并选择最匹配的商品 (工具: webshop)",
+            "[Executor] 步骤 1 完成: SELECTED: ws_usb_002 | USB-C 30W Compact Charger single port\nprice=15.99 rating=4.4\nmatched_attribut...",
+            "[Critic] 规则验证步骤 1: 评分 5.0 (WebShop商品选择满足约束。)",
+            "[Critic] 步骤 1 合格，进入下一环节",
+            "[Synthesizer] 开始综合 1 个步骤的结果",
+            "[Synthesizer] 抽取式综合完成（确定性/预算感知路径）"
+          ]
+        }
+      ]
+    },
+    "webshop_react": {
+      "benchmark": "webshop_local_adapter",
+      "mode": "sample/mock",
+      "agent_type": "react_baseline",
+      "total_samples": 6,
+      "success_count": 4,
+      "success_rate": 0.6667,
+      "total_tokens": 937,
+      "avg_tokens_per_task": 156,
+      "details": [
+        {
+          "task_id": "webshop_001",
+          "instruction": "Find an organic jasmine green tea with at least 100 bags under $20.",
+          "target_id": "ws_tea_001",
+          "predicted": "SELECTED: ws_tea_001 | Organic Jasmine Green Tea 100 bags",
+          "success": true,
+          "tokens_used": 161,
+          "logs": [
+            "[ReAct-WebShop] 单轮关键词匹配完成，未执行独立约束评审"
+          ]
+        },
+        {
+          "task_id": "webshop_002",
+          "instruction": "Find a decaf chamomile herbal tea under $16.",
+          "target_id": "ws_tea_002",
+          "predicted": "SELECTED: ws_tea_001 | Organic Jasmine Green Tea 100 bags",
+          "success": false,
+          "tokens_used": 153,
+          "logs": [
+            "[ReAct-WebShop] 单轮关键词匹配完成，未执行独立约束评审"
+          ]
+        },
+        {
+          "task_id": "webshop_003",
+          "instruction": "Need a USB-C 65W GaN dual port charger under $35.",
+          "target_id": "ws_usb_001",
+          "predicted": "SELECTED: ws_usb_001 | USB-C 65W GaN Charger dual port",
+          "success": true,
+          "tokens_used": 154,
+          "logs": [
+            "[ReAct-WebShop] 单轮关键词匹配完成，未执行独立约束评审"
+          ]
+        },
+        {
+          "task_id": "webshop_004",
+          "instruction": "Buy an insulated stainless steel 24 oz water bottle under $25.",
+          "target_id": "ws_bottle_001",
+          "predicted": "SELECTED: ws_bottle_001 | Insulated Stainless Steel Water Bottle 24 oz",
+          "success": true,
+          "tokens_used": 163,
+          "logs": [
+            "[ReAct-WebShop] 单轮关键词匹配完成，未执行独立约束评审"
+          ]
+        },
+        {
+          "task_id": "webshop_005",
+          "instruction": "I want a silent wireless ergonomic mouse under $30.",
+          "target_id": "ws_mouse_001",
+          "predicted": "SELECTED: ws_mouse_001 | Silent Wireless Ergonomic Mouse",
+          "success": true,
+          "tokens_used": 155,
+          "logs": [
+            "[ReAct-WebShop] 单轮关键词匹配完成，未执行独立约束评审"
+          ]
+        },
+        {
+          "task_id": "webshop_006",
+          "instruction": "Find a compact USB-C charger under $18.",
+          "target_id": "ws_usb_002",
+          "predicted": "SELECTED: ws_usb_001 | USB-C 65W GaN Charger dual port",
+          "success": false,
+          "tokens_used": 151,
+          "logs": [
+            "[ReAct-WebShop] 单轮关键词匹配完成，未执行独立约束评审"
+          ]
+        }
+      ]
+    },
+    "cost_ablation": {
+      "benchmark": "token_budget_ablation",
+      "mode": "A/B comparison (heuristics disabled)",
+      "budgeted_token_budget": 800,
+      "unbudgeted_token_budget": 50000,
+      "total_samples": 3,
+      "budgeted_avg_tokens_per_task": 969,
+      "unbudgeted_avg_tokens_per_task": 1097,
+      "token_savings_pct": 11.7,
+      "details": [
+        {
+          "task_id": "gaia_l1_012",
+          "budgeted_tokens": 825,
+          "unbudgeted_tokens": 1249,
+          "saved_tokens": 424,
+          "saved_pct": 33.9,
+          "scheduler_decisions": [
+            "synthesizer:emergency_synthesize"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_013",
+          "budgeted_tokens": 1092,
+          "unbudgeted_tokens": 1046,
+          "saved_tokens": -46,
+          "saved_pct": -4.4,
+          "scheduler_decisions": [
+            "synthesizer:emergency_synthesize"
+          ]
+        },
+        {
+          "task_id": "gaia_l1_015",
+          "budgeted_tokens": 989,
+          "unbudgeted_tokens": 997,
+          "saved_tokens": 8,
+          "saved_pct": 0.8,
+          "scheduler_decisions": []
+        }
+      ]
+    }
+  },
+  "note": "【数据声明】mode=sample/mock，下表数据来自项目内置样例集，非 GAIA 官方测试集或真实 WebShop 环境。GAIA L1：28 道自定义 Level 1 样例（含知识检索+精确计算）；WebShop：6 道模拟购物任务（内置 mock 商品库）；ReAct 基线：同一 DeepSeek-V3 模型+同一工具集+同一题目；Token 统计：端到端对比（含 LLM 调用+工具执行全流程）。实验环境：DeepSeek-V3 API (temperature=0.0) | Python 3.10.11 | langgraph 0.2.x | 2026-07-12。样本量较小(n=28/6)，百分比为样例集精确值，不代表官方完整测试集表现。接入官方数据集方法参见 EXPERIMENT.md。"
+}
