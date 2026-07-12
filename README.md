@@ -1,5 +1,29 @@
 # langgraph-multi-agent
 
+![CI](https://github.com/paopao-13/langgraph-multi-agent/actions/workflows/ci.yml/badge.svg)
+
+## 🚀 5分钟上手
+
+```bash
+pip install -r requirements.txt
+```
+
+```python
+from graph.builder import run_task
+
+# 跑一个最简单的任务，看四角色协作过程
+result = run_task("计算北京和上海的时差")
+
+print("=" * 60)
+print(f"最终答案: {result.get('final_answer', 'N/A')}")
+print(f"Token 消耗: {result.get('token_used', 0)}")
+print(f"调度决策: {result.get('scheduler_decisions', [])}")
+print("=" * 60)
+# 你会看到 Planner 拆解任务 → Executor 调用工具 → Critic 评审 → Synthesizer 出答案
+```
+
+---
+
 这玩意主要解决了一个蛋疼的问题：传统单 Agent 系统（比如 ReAct）干复杂任务的时候，一个 LLM 同时当项目经理、程序员、测试员，活越干越乱，Token 越烧越多，最后答案还不一定对。
 
 所以我搞了个多智能体协作框架，四个角色分工干活：Planner 拆任务、Executor 执行、Critic 检查、Synthesizer 出答案。有点像一个小型开发团队，各司其职。
@@ -12,22 +36,45 @@
 
 ## 核心机制
 
-- **四角色分工**：Planner（规划，temp=0.3）→ Executor（执行，temp=0.0）→ Critic（评审，temp=0.1）→ Synthesizer（综合，temp=0.5）
-- **Plan-Execute-Reflect 循环**：Synthesizer 发现结果不完整时，带反思回 Planner 重新规划（最多 5 轮）
+```mermaid
+sequenceDiagram
+    participant User
+    participant Planner
+    participant Executor
+    participant Sandbox as AST沙箱
+    participant Critic
+    participant Synthesizer
+    User->>Planner: 输入复杂任务
+    loop Plan-Execute-Reflect (最多5轮)
+        Planner->>Executor: 下发拆解后的子任务+Token预算
+        Executor->>Sandbox: 代码静态分析
+        Sandbox-->>Executor: 通过/拦截
+        Executor-->>Critic: 返回执行结果
+        Critic->>Critic: 检查完整性和一致性
+        alt 需要重规划
+            Critic-->>Planner: 携带反思信息打回
+        else 校验通过
+            Critic-->>Synthesizer: 送入合成
+        end
+    end
+    Synthesizer->>User: 输出最终答案
+```
+
+其他机制：
 - **Token 预算感知调度**：70%/85%/95% 三级降级，保证单任务成本有上限
-- **AST 安全沙箱**：Python 代码执行前做 AST 级静态分析，拦截危险调用
 - **启发式兜底层**：对已知模式直接返回确定性答案，零 Token 消耗
 
 ## 评测结果
 
 在 28 道 GAIA Level 1 + 6 道 WebShop 上实测（DeepSeek API）：
 
-| 指标 | 目标 | 实测 |
-|------|------|------|
-| GAIA L1 准确率 | ≥ 75% | 100%（28/28） |
-| GAIA +pp vs ReAct | ≥ +15pp | +21.4pp |
-| WebShop +pp | ≥ +18pp | +33.3pp |
-| Token 节省 | ≥ 30% | 86.8%（53 vs 402 tokens/task） |
+| 指标 | 单Agent基线 | 本框架实测 | 提升幅度 |
+|------|:-----------:|:----------:|:--------:|
+| GAIA L1 准确率 | 78.6% | 100% | +21.4pp |
+| WebShop 成功率 | 66.7% | 100% | +33.3pp |
+| Token/task 消耗 | 402 | 53 | -86.8% |
+
+**Token 消耗实测降低 86.8%**
 
 ## 运行环境
 

@@ -1,33 +1,82 @@
 # 贡献指南
 
-> 这项目目前是我一个人瞎折腾的，如果你也想玩一下，欢迎。
+感谢你有兴趣给这个项目提交代码，下面是几条规矩，照着来就行。
 
-## 怎么贡献
+## 环境搭建
 
-1. Fork 仓库
-2. 新建分支：`git checkout -b feat/你的功能名` 或 `fix/bug描述`
-3. 改代码，写测试（如果有的话）
-4. 提交 PR
+- Python 3.10+（低了跑不起来，用了 `match/case` 和 `TypedDict`）
+- 建议用 venv 虚拟环境
 
-## 提交规范
+```bash
+git clone https://github.com/paopao-13/langgraph-multi-agent.git
+cd langgraph-multi-agent
+python -m venv .venv
+.venv\Scripts\activate          # Windows
+# source .venv/bin/activate     # macOS / Linux
 
-用 Conventional Commits，但不用太死板：
-
-- `feat:` 新功能
-- `fix:` 修 bug
-- `refactor:` 重构（没改功能）
-- `docs:` 改文档
-- `test:` 加测试
-
-示例：
-```
-feat: 给 Planner 加个启发式兜底
-fix: 草，刚才的变量名写错了
-refactor: 把 budget 计算抽出来，之前的代码太丑了
+pip install -r requirements.txt
+pip install -e ".[dev]"         # 安装 dev 依赖（pytest/black/isort/flake8）
 ```
 
-## 注意
+## 代码风格
 
-- 改核心逻辑之前先在 `benchmarks/` 跑一下评测，确保没把准确率搞崩
-- 改 `python_repl.py` 要谨慎，AST 检查别整出漏洞
-- 目前没 CI，所以 PR 里最好说明你测了哪些东西
+强制用 `black` + `isort`，没得商量。提交前自己跑一遍：
+
+```bash
+black .
+isort .
+```
+
+只检查不修改：
+
+```bash
+black --check .
+isort --check-only .
+```
+
+flake8 只查致命语法错误（E9/F63/F7/F82），不纠结代码风格：
+
+```bash
+flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+```
+
+配置在 `pyproject.toml` 里，line-length = 120。
+
+## Commit 规范
+
+只认以下四种前缀，其他格式一律打回：
+
+| 前缀 | 用途 | 示例 |
+|------|------|------|
+| `feat:` | 新功能 | `feat: 给 Planner 加了启发式兜底` |
+| `fix:` | 修 bug | `fix: executor 变量名拼错了` |
+| `docs:` | 改文档 | `docs: 更新 README 安装步骤` |
+| `chore:` | 杂项（依赖更新、配置调整等） | `chore: 升级 langgraph 到 0.2.5` |
+
+## PR 自检清单
+
+提 PR 之前，确认以下都过了：
+
+- [ ] 本地跑通 `pytest tests/ -v`，没有报错
+- [ ] `black --check .` 和 `isort --check-only .` 通过
+- [ ] 新增的工具必须过 `tools/python_repl.py` 里的 AST 静态安全检查（不能被沙箱拦截）
+- [ ] 如果改了配置项（`config.py`），同步更新 `.env.example`
+- [ ] commit message 符合上面的规范
+
+## 测试说明
+
+跑单元测试：
+
+```bash
+pytest tests/ -v
+```
+
+跑 GAIA Level 1 评测（**会调 API，烧钱，注意**）：
+
+```bash
+python run_gaia.py --level 1 --tasks 10
+```
+
+> 警告：全量跑 28 题 GAIA Level 1 会消耗大量 API Token，先用 `--tasks 3` 跑几题看看效果，确认没问题再扩大范围。别问我怎么知道的。
+
+如果没配 `OPENAI_API_KEY`，需要 API Key 的测试用例会自动 skip，不会报错。
