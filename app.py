@@ -194,7 +194,7 @@ def api_gaia_samples():
 
 if __name__ == "__main__":
     print(f"\n{'='*50}")
-    print(f"  LangGraph 多智能体协作框架")
-    print(f"  访问 http://{FLASK_HOST}:{FLASK_PORT}")
+    print(f"  PECS 多智能体协作框架")
+    print(f"  访问 http://0.0.0.0:5000")
     print(f"{'='*50}\n")
-    app.run(host=FLASK_HOST, port=FLASK_PORT, debug=FLASK_DEBUG)
+    app.run(debug=True, host="0.0.0.0", port=5000)

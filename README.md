@@ -1,6 +1,8 @@
 # langgraph-multi-agent
 
-![CI](https://github.com/paopao-13/langgraph-multi-agent/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/paopao-13/pecs-multi-agent/actions/workflows/ci.yml/badge.svg)
+
+如果想精确复现评测结果，请使用 `pip install -r requirements-lock.txt`。
 
 ## 🚀 5分钟上手
 
@@ -86,8 +88,8 @@ sequenceDiagram
 
 ```bash
 # 1. 克隆
-git clone https://github.com/paopao-13/langgraph-multi-agent.git
-cd langgraph-multi-agent
+git clone https://github.com/paopao-13/pecs-multi-agent.git
+cd pecs-multi-agent
 
 # 2. 虚拟环境
 python -m venv .venv
@@ -141,7 +143,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 ## 项目结构
 
 ```
-langgraph-multi-agent/
+pecs-multi-agent/
 ├── app.py                 # Flask Web 入口
 ├── config.py              # 全局配置
 ├── requirements.txt       # 依赖
