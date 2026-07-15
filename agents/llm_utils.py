@@ -1,7 +1,7 @@
 """
 LLM 调用封装
 
-统一的 LLM 调用接口，封装 DeepSeek API（兼容 OpenAI 格式）。
+统一的 LLM 调用接口，封装 LLM API（兼容 OpenAI 格式，支持 DeepSeek/GLM/Qwen 等）。
 所有 Agent 角色都通过这个模块调用 LLM，方便统一管理 Token 消耗。
 
 按角色区分 temperature：
@@ -14,7 +14,7 @@ LLM 调用封装
 import json
 from typing import Optional
 from langchain_openai import ChatOpenAI
-from config import DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, DEEPSEEK_MODEL, LLM_MAX_TOKENS
+from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS
 
 # ========== 按角色配置 temperature ==========
 ROLE_TEMPERATURES = {
@@ -46,9 +46,9 @@ def get_llm(role: str = "default") -> ChatOpenAI:
 
     if role not in _llm_instances:
         _llm_instances[role] = ChatOpenAI(
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL,
-            model=DEEPSEEK_MODEL,
+            api_key=LLM_API_KEY,
+            base_url=LLM_BASE_URL,
+            model=LLM_MODEL,
             temperature=temp,
             max_tokens=LLM_MAX_TOKENS,
         )
@@ -68,37 +68,59 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
         (response_text, token_used)
         - response_text: LLM 返回的文本
         - token_used: 本次调用消耗的总 Token 数
+
+    包含自动重试机制（3次，指数退避），应对 API 限流和临时网络错误。
     """
-    if not DEEPSEEK_API_KEY:
+    import time as _time
+
+    if not LLM_API_KEY:
         # 无 API Key 时返回模拟响应，保证系统可运行
         return _mock_llm_response(prompt, system_prompt), 100
 
-    try:
-        llm = get_llm(role)
-        messages = []
-        if system_prompt:
-            messages.append(("system", system_prompt))
-        messages.append(("human", prompt))
+    max_retries = 3
+    last_error = ""
 
-        response = llm.invoke(messages)
+    for attempt in range(max_retries):
+        try:
+            llm = get_llm(role)
+            messages = []
+            if system_prompt:
+                messages.append(("system", system_prompt))
+            messages.append(("human", prompt))
 
-        # 提取 Token 使用量
-        token_used = 0
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            token_used = response.usage_metadata.get("total_tokens", 0)
-        elif hasattr(response, "response_metadata"):
-            meta = response.response_metadata
-            if "token_usage" in meta:
-                token_used = meta["token_usage"].get("total_tokens", 0)
+            response = llm.invoke(messages)
 
-        # 估算 Token（如果 API 没返回）
-        if token_used == 0:
-            token_used = (len(system_prompt) + len(prompt) + len(response.content)) // 3
+            # 提取 Token 使用量
+            token_used = 0
+            if hasattr(response, "usage_metadata") and response.usage_metadata:
+                token_used = response.usage_metadata.get("total_tokens", 0)
+            elif hasattr(response, "response_metadata"):
+                meta = response.response_metadata
+                if "token_usage" in meta:
+                    token_used = meta["token_usage"].get("total_tokens", 0)
 
-        return response.content, token_used
+            # 估算 Token（如果 API 没返回）
+            if token_used == 0:
+                token_used = (len(system_prompt) + len(prompt) + len(response.content)) // 3
 
-    except Exception as e:
-        return f"[LLM调用失败] {type(e).__name__}: {str(e)}", 0
+            return response.content, token_used
+
+        except Exception as e:
+            last_error = f"{type(e).__name__}: {str(e)}"
+            error_str = str(e).lower()
+            # 限流/速率限制/服务暂不可用 → 等待后重试
+            is_rate_limit = any(kw in error_str for kw in [
+                "rate", "429", "quota", "too many", "throttl", "limit",
+                "timeout", "connection", "temporarily", "unavailable"
+            ])
+            if is_rate_limit and attempt < max_retries - 1:
+                wait = 15 * (2 ** attempt)  # 15s, 30s, 60s
+                _time.sleep(wait)
+                continue
+            # 非限流错误或重试耗尽，直接返回失败
+            break
+
+    return f"[LLM调用失败] {last_error}", 0
 
 
 def call_llm_json(prompt: str, system_prompt: str = "", role: str = "default") -> tuple:

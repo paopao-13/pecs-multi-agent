@@ -22,7 +22,7 @@ from graph.token_budget import (
     record_token_usage,
 )
 from tools import TOOL_DESCRIPTIONS
-from config import DEEPSEEK_API_KEY, MAX_RETRIES
+from config import LLM_API_KEY, MAX_RETRIES
 
 # Planner 的系统提示词 —— 定义角色和行为规范
 PLANNER_SYSTEM_PROMPT = """你是一个任务规划专家（Planner），负责将用户的复杂任务分解为可执行的步骤列表。
@@ -109,12 +109,60 @@ def planner_node(state: dict) -> dict:
 
     prompt += "\n请生成执行计划（JSON格式）。"
 
-    # 优先尝试启发式规划（确定性路径，不消耗 Token，保证 benchmark 可重复性）
     use_heuristics = state.get("use_heuristics", True)
     heuristic_plan = build_heuristic_plan(query, merge_steps=policy["merge_steps"]) if use_heuristics else None
     scheduler_decisions = state.get("scheduler_decisions", [])
+    has_api_key = bool(LLM_API_KEY)
 
-    if heuristic_plan:
+    if has_api_key:
+        # 真实 API 模式：LLM 为主，启发式为 fallback
+        if heuristic_plan and _is_deterministic_task(heuristic_plan):
+            # 确定性任务（纯计算/WebShop）：启发式规划最优
+            # python/webshop 工具自身给出精确输出，无需 LLM 推理
+            plan_data = heuristic_plan
+            token_consumed = 0
+            saved = estimate_tokens(prompt + PLANNER_SYSTEM_PROMPT)
+            logs.append(f"[Planner] 确定性任务使用启发式规划（工具精确执行，零LLM调用，节省 ~{saved} tokens）")
+            scheduler_decisions = append_scheduler_decision(
+                {**state, "token_used": token_used},
+                "planner",
+                "heuristic_plan",
+                "确定性任务命中启发式模式，跳过LLM规划调用",
+                estimated_tokens_saved=saved,
+            )
+        else:
+            # 搜索/知识类任务：LLM 规划
+            from graph.token_budget import check_role_budget
+            planner_quota = check_role_budget(state, "planner")
+            if planner_quota["exceeded"]:
+                token_consumed = 0
+                if heuristic_plan:
+                    plan_data = heuristic_plan
+                    logs.append(f"[Planner] 角色配额超限({planner_quota['action']})，降级到启发式规划")
+                    scheduler_decisions = append_scheduler_decision(
+                        {**state, "token_used": token_used},
+                        "planner",
+                        "role_quota_exceeded",
+                        f"Planner配额超限，降级动作: {planner_quota['action']}",
+                    )
+                else:
+                    plan_data = {"steps": [], "complexity": "simple"}
+                    logs.append("[Planner] 角色配额超限且启发式未命中，返回空计划")
+            else:
+                token_consumed = 0
+                try:
+                    plan_data, token_consumed = call_llm_json(prompt, PLANNER_SYSTEM_PROMPT, role="planner")
+                except Exception as exc:
+                    token_consumed = estimate_tokens(prompt + PLANNER_SYSTEM_PROMPT)
+                    plan_data = {}
+                    logs.append(f"[Planner] LLM计划解析失败: {type(exc).__name__}")
+
+            # LLM 返回空计划时尝试启发式兜底
+            if not plan_data.get("steps") and use_heuristics and heuristic_plan:
+                plan_data = heuristic_plan
+                logs.append("[Planner] LLM规划返回空，回退到启发式规划")
+    elif heuristic_plan:
+        # 离线模式：启发式 only（无 API Key）
         plan_data = heuristic_plan
         token_consumed = 0
         saved = estimate_tokens(prompt + PLANNER_SYSTEM_PROMPT)
@@ -127,40 +175,9 @@ def planner_node(state: dict) -> dict:
             estimated_tokens_saved=saved,
         )
     else:
-        # 启发式未命中，检查 Planner 角色独立配额
-        from graph.token_budget import check_role_budget
-        planner_quota = check_role_budget(state, "planner")
-        if planner_quota["exceeded"]:
-            # Planner 超配额：强制走启发式兜底，跳过 LLM 调用
-            token_consumed = 0
-            fallback = build_heuristic_plan(query, merge_steps=policy["merge_steps"])
-            if fallback:
-                plan_data = fallback
-                logs.append(f"[Planner] 角色配额超限({planner_quota['action']})，强制走启发式规划")
-                scheduler_decisions = append_scheduler_decision(
-                    {**state, "token_used": token_used},
-                    "planner",
-                    "role_quota_exceeded",
-                    f"Planner配额超限，降级动作: {planner_quota['action']}",
-                )
-            else:
-                plan_data = {"steps": [], "complexity": "simple"}
-                logs.append("[Planner] 角色配额超限且启发式未命中，返回空计划")
-        else:
-            token_consumed = 0
-            try:
-                plan_data, token_consumed = call_llm_json(prompt, PLANNER_SYSTEM_PROMPT, role="planner")
-            except Exception as exc:
-                token_consumed = estimate_tokens(prompt + PLANNER_SYSTEM_PROMPT)
-                plan_data = {}
-                logs.append(f"[Planner] LLM计划解析失败: {type(exc).__name__}")
-
-        # LLM 返回空计划时尝试启发式兜底（仅在启用启发式时）
-        if not plan_data.get("steps") and use_heuristics:
-            fallback = build_heuristic_plan(query, merge_steps=policy["merge_steps"])
-            if fallback:
-                plan_data = fallback
-                logs.append("[Planner] 空计划已由启发式计划兜底")
+        plan_data = {"steps": [], "complexity": "simple"}
+        token_consumed = 0
+        logs.append("[Planner] 无API Key且启发式未命中，返回空计划")
 
     # 更新状态
     steps = plan_data.get("steps", [])
@@ -213,3 +230,20 @@ def planner_node(state: dict) -> dict:
         "iteration": iteration,
         "logs": logs,
     }
+
+
+def _is_deterministic_task(plan_data: dict) -> bool:
+    """判断计划是否仅包含确定性工具步骤（python/webshop）。
+
+    确定性工具指工具自身给出精确输出、无需 LLM 推理的工具：
+    - python: AST 沙箱精确执行，结果确定
+    - webshop: 内部做多维约束匹配，结果确定
+
+    对这类任务，启发式规划生成工具调用参数即可，
+    无需消耗 LLM tokens 进行规划。
+    """
+    steps = plan_data.get("steps", [])
+    if not steps:
+        return False
+    deterministic_actions = {"python", "webshop"}
+    return all(s.get("action") in deterministic_actions for s in steps)

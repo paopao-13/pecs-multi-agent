@@ -11,6 +11,7 @@ ReAct = Reasoning + Acting，是最常见的单 Agent 范式。
 import json
 from agents.llm_utils import call_llm
 from tools import execute_tool, TOOL_DESCRIPTIONS
+from graph.token_budget import estimate_tokens
 from config import DEFAULT_TOKEN_BUDGET
 
 REACT_SYSTEM_PROMPT = """你是一个 ReAct 智能体，需要通过推理和行动来完成任务。
@@ -18,7 +19,7 @@ REACT_SYSTEM_PROMPT = """你是一个 ReAct 智能体，需要通过推理和行
 请按以下格式工作（重复直到得出答案）：
 
 Thought: 思考当前应该做什么
-Action: 工具名称（search/python/file_read/api_call）
+Action: 工具名称（search/python/file_read/api_call/webshop）
 Action Input: 工具参数（JSON格式）
 Observation: [系统返回工具执行结果]
 
@@ -27,12 +28,14 @@ Observation: [系统返回工具执行结果]
 Thought: 我现在知道答案了
 Final Answer: 最终答案
 
-可用工具：
-- search: Web搜索
-- python: Python代码执行
-- file_read: 文件读取
-- api_call: API调用
-- webshop: WebShop商品选择
+可用工具及参数格式：
+- search: {"query": "搜索关键词", "num_results": 3}
+- python: {"code": "print(2**10)"}  （math/json/re/datetime已预导入，禁止写import语句）
+- file_read: {"path": "文件路径"}
+- api_call: {"url": "API地址", "method": "GET"}
+- webshop: {"instruction": "购物需求描述"}
+
+注意：Action 必须是上述工具名之一，Action Input 必须是合法 JSON。
 """
 
 
@@ -82,7 +85,7 @@ def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_ste
 
         # 执行工具
         result = execute_tool(action, action_input)
-        token_used += len(result) // 3  # 估算 Token
+        token_used += estimate_tokens(result)
 
         logs.append(f"[ReAct] 执行 {action}: {result[:80]}...")
         steps_log.append({
@@ -149,6 +152,7 @@ def evaluate_react_gaia(num_samples: int = None, token_budget: int = DEFAULT_TOK
 
     返回与 evaluate_gaia() 相同格式的结果，方便对比
     """
+    import time
     from benchmarks.gaia_eval import GAIA_L1_SAMPLES, evaluate_answer, save_results
 
     samples = GAIA_L1_SAMPLES[:num_samples] if num_samples else GAIA_L1_SAMPLES
@@ -162,7 +166,7 @@ def evaluate_react_gaia(num_samples: int = None, token_budget: int = DEFAULT_TOK
         question = sample["question"]
         ground_truth = sample["answer"]
 
-        print(f"[{i+1}/{len(samples)}] ReAct 评估任务 {task_id}: {question}")
+        print(f"[{i+1}/{len(samples)}] ReAct 评估任务 {task_id}: {question}", flush=True)
 
         state = run_react_task(question, token_budget)
 
@@ -183,7 +187,11 @@ def evaluate_react_gaia(num_samples: int = None, token_budget: int = DEFAULT_TOK
             "tokens_used": tokens_used,
         })
 
-        print(f"  → 预测: {predicted[:80]}... | 正确: {is_correct}")
+        print(f"  → 预测: {predicted[:80]}... | 正确: {is_correct}", flush=True)
+
+        # 任务间延迟，避免 API 限流
+        if i < len(samples) - 1:
+            time.sleep(3)
 
     accuracy = correct_count / len(samples) if samples else 0
     avg_tokens = total_tokens / len(samples) if samples else 0

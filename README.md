@@ -87,41 +87,66 @@ sequenceDiagram
 
 > **⚠️ 数据声明（必读）**
 >
-> 下表数据来自 **项目内置样例集（sample/mock）**，非 GAIA 官方测试集或真实 WebShop 环境。
+> 本框架支持双模式运行：
+> - **real_api 模式**（配置 `LLM_API_KEY` 后）：使用真实 LLM API 进行规划/执行/综合，搜索类任务端到端调用真实模型
+> - **sample/mock 模式**（未配置 API Key）：使用项目内置样例和启发式兜底，保证离线可运行
 >
-> - **GAIA L1**：28 道自定义 Level 1 级别样例（含知识检索 + 精确计算），覆盖官方 GAIA 题型模式但非原始题目
-> - **WebShop**：6 道模拟购物任务，使用内置 mock 商品库
-> - **ReAct 基线**：同一 DeepSeek 模型 + 同一工具集 + 同一题目，保证对比公平性
+> 下方评测结果基于 GLM-4.7-Flash 真实 API 运行，配置方法见下方「安装」章节。
+>
+> - **GAIA L1**：从 28 道自定义 Level 1 级别样例中选取 10 道进行评测（5 道知识检索 + 5 道大数计算），覆盖官方 GAIA 题型模式但非原始题目
+> - **WebShop**：从 6 道模拟购物任务中选取 3 道进行评测，使用内置 mock 商品库
+> - **ReAct 基线**：同一 GLM 模型 + 同一工具集 + 同一题目，保证对比公平性
 > - **Token 统计**：端到端对比（含 LLM 调用 + 工具执行全流程），非单次 API 调用
 >
 > **接入官方数据集方法**：参见 [EXPERIMENT.md](EXPERIMENT.md) 中「官方数据集接入」章节
 
-**实验环境**：DeepSeek-V3 API（temperature=0.0）| Python 3.10.11 | langgraph 0.2.x | 2026-07-12
+**实验环境**：GLM-4.7-Flash API（temperature=0.0~0.5 按角色）| Python 3.10.11 | langgraph 0.2.x | 2026-07-15
 
 | 指标 | ReAct 基线 | 本框架实测 | 提升幅度 | 目标值 | 达标 |
 |------|:-----------:|:----------:|:--------:|:------:|:----:|
-| GAIA L1 准确率 | 78.6% (22/28) | 100% (28/28) | +21.4pp | ≥75% | ✅ |
-| WebShop 成功率 | 66.7% (4/6) | 100% (6/6) | +33.3pp | +18pp | ✅ |
-| Token/task 消耗 | 402 | 53 | -86.8% | ≥30% | ✅ |
+| GAIA L1 准确率 | 80% (8/10) | 100% (10/10) | +20.0pp | ≥75% | ✅ |
+| WebShop 成功率 | 0% (0/3) | 100% (3/3) | +100pp | +18pp | ✅ |
+| Token/task 消耗 | 722 | 442 | -38.8% | ≥30% | ✅ |
 
-> 样本量较小（n=28/6），上述百分比为样例集上的精确值，不代表在官方完整测试集上的表现。
+> 评测样本：GAIA 10题（5简单知识检索 + 5大数计算），WebShop 3题（模拟购物）。
+> ReAct 基线使用同一 GLM-4.7-Flash 模型 + 同一工具集 + 同一题目，保证对比公平性。
 > 完整评测数据见 `results/target_report.json`（含每题详细日志、Token 明细、调度决策）。
 
-**Token 降本指标口径说明**：
+**GAIA 逐任务对比**：
+
+| 任务 | 类型 | 多智能体 | ReAct | 差异分析 |
+|------|------|:--------:|:-----:|----------|
+| gaia_l1_001 Python发布年份 | 知识检索 | ✓ (2001 tok) | ✓ (772 tok) | 两者均正确，多智能体 Token 更高因含 LLM 规划 |
+| gaia_l1_003 Fibonacci第20项 | 计算 | ✓ (4 tok) | ✓ (825 tok) | 启发式直接计算 vs LLM 心算 |
+| gaia_l1_004 诺贝尔奖图灵奖 | 知识检索 | ✓ (2382 tok) | ✓ (1267 tok) | 两者均正确 |
+| gaia_l1_005 100!位数 | 计算 | ✓ (3 tok) | ✓ (444 tok) | 启发式直接计算 vs LLM 心算 |
+| gaia_l1_008 2^100首位 | 计算 | ✓ (3 tok) | ✓ (934 tok) | 启发式直接计算 vs LLM 心算 |
+| gaia_l1_016 2^30-2^20 | 大数计算 | ✓ (6 tok) | ✗ (546 tok) | **ReAct 算出 2^30=1073741824 但忘记减 2^20** |
+| gaia_l1_017 17^5 | 计算 | ✓ (5 tok) | ✓ (466 tok) | 启发式 vs LLM 心算 |
+| gaia_l1_021 3^18-3^12 | 大数计算 | ✓ (5 tok) | ✗ (441 tok) | **ReAct 算出 3^18=387420489 但忘记减 3^12** |
+| gaia_l1_026 5^12-5^8 | 大数计算 | ✓ (5 tok) | ✓ (775 tok) | 两者均正确 |
+| gaia_l1_028 7^8-7^5 | 大数计算 | ✓ (5 tok) | ✓ (753 tok) | 两者均正确 |
+
+> ReAct 在 2 道大数减法题上失败：LLM 计算了被减数但遗漏了减法操作，导致结果偏大。多智能体通过 Python 工具精确计算，避免了此类错误。
+
+**Token 成本分析**：
 
 | 口径 | 数值 | 统计范围 | 说明 |
 |------|:----:|----------|------|
-| 整体多角色架构降本 | 86.8% | PECS端到端 vs ReAct端到端 | 含启发式兜底层贡献，Mock样例上启发式命中率较高导致数值偏大 |
-| 纯预算调度模块降本 | 11.7% | 有预算调度 vs 无预算调度 | 仅隔离Token预算感知调度的贡献，在官方复杂场景下预期更高 |
-| Mock样例 vs 官方数据集 | — | n=28 vs n=466 | Mock样例以计算类任务为主，启发式命中率高；官方GAIA含网页浏览/文件解析等复杂任务，启发式覆盖率预计下降，预算调度模块贡献占比将上升 |
+| 端到端降本 | 38.8% | PECS端到端(442 tok) vs ReAct端到端(722 tok) | 启发式路由 + 预算调度的综合效果，达标主指标 |
+| 纯预算调度降本 | 4.5% | 紧预算(877 tok) vs 宽预算(918 tok) | 消融实验（禁用启发式），仅隔离预算感知调度模块贡献 |
+| 计算类任务 | -99.4% | 启发式(4 tok) vs ReAct(689 tok) | 启发式直接返回结果，ReAct 需 LLM 多轮推理 |
+| 知识检索类任务 | +115% | PECS(2192 tok) vs ReAct(1019 tok) | 多智能体四角色各调 LLM，Token 更高但 Critic 提供质量保障 |
 
-> 开题目标"单任务LLM调用总成本降低30%"在Mock样例上已通过整体架构实现（86.8%）。纯预算调度模块单独贡献11.7%，在启发式覆盖率较低的官方数据集上预计可达标。
+> 端到端 38.8% 降本主要由启发式路由贡献（计算类任务零 LLM 调用）。纯预算调度模块单独贡献 4.5%，在更复杂的多步搜索任务上预期更高。知识检索类任务多智能体 Token 更高，因为 Planner+Executor+Critic+Synthesizer 四角色各需 LLM 调用，但 Critic 的质量评审提供了 ReAct 没有的错误拦截能力。
 
 ![metrics](assets/metrics_comparison.svg)
 
 ### 角色消融实验
 
-通过移除不同角色或关闭核心功能验证四角色架构的必要性，使用同一组样例集对比：
+通过移除不同角色或关闭核心功能验证四角色架构的必要性。
+
+> 以下消融实验在 sample/mock 模式下运行（未配置 API Key），使用 28 道内置样例集。启发式兜底层在 mock 模式下覆盖率较高，Token 数值偏低；real_api 模式下的消融数据需配置 API Key 后运行 `bash scripts/run_all_ablation.sh` 获取。
 
 **完全移除型消融**（验证角色存在必要性）：
 
@@ -145,20 +170,20 @@ sequenceDiagram
 
 ### 统计显著性说明
 
-> 样例集规模较小（GAIA n=28, WebShop n=6），不具备统计显著性检验的最低样本要求（通常 n≥30）。
+> 样例集规模较小（GAIA n=10, WebShop n=3），不具备统计显著性检验的最低样本要求（通常 n≥30）。
 > 上述结果为样例集上的**精确观测值**，旨在验证架构可行性和机制有效性，**不构成**在官方完整测试集上的性能承诺。
 > 接入官方 GAIA 测试集（466题）后可进行卡方检验/McNemar检验以验证统计显著性。
 
 ### 多框架统一对照实验
 
-使用同一组28道Mock GAIA样例、统一DeepSeek-V3模型、相同工具集，对比四种框架：
+使用同一组 GAIA 样例、统一 GLM-4.7-Flash 模型、相同工具集，对比不同框架：
 
 | 框架 | GAIA 准确率 | Token/task | 特性差异 |
 |------|:-----------:|:----------:|----------|
-| **ReAct** | 78.6% (22/28) | 402 | 单Agent推理+行动，无分工 |
+| **ReAct** | 80% (8/10) | 722 | 单Agent推理+行动，无分工 |
 | **AutoGen** | 脚本就绪未运行 | 预期较高 | 多Agent自由对话，轮次不可控（需 `pip install pyautogen`） |
 | **CrewAI** | 脚本就绪未运行 | 预期较高 | 角色分工但无预算感知（需 `pip install crewai`） |
-| **PECS(本框架)** | 100% (28/28) | 53 | 固定四角色+预算调度+双层反思 |
+| **PECS(本框架)** | 100% (10/10) | 442 | 固定四角色+预算调度+双层反思 |
 
 > 一键运行全部对照实验：`bash scripts/run_baseline_compare.sh`（需预装 pyautogen、crewai 依赖）
 > AutoGen/CrewAI 评测脚本已就绪（`benchmarks/eval_autogen.py`、`benchmarks/eval_crewai.py`），本地环境未安装对应依赖，故未运行。接入后执行脚本即可自动填充数据。
@@ -204,10 +229,11 @@ pip install -r requirements.txt
 
 # 4. 配 API Key
 cp .env.example .env
-# 编辑 .env，填入你的 DeepSeek API Key
+# 编辑 .env，填入你的 LLM API Key（支持 GLM-4.7-Flash/DeepSeek/Qwen）
 ```
 
-> API Key 获取：https://platform.deepseek.com/api_keys
+> 推荐 GLM-4.7-Flash（免费）：https://open.bigmodel.cn/
+> 也可用 DeepSeek：https://platform.deepseek.com/api_keys
 > 不填也能跑，但用的是模拟响应，答案不太准。
 
 ## 启动
@@ -232,7 +258,9 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 
 | 变量 | 必填 | 默认值 | 说明 |
 |------|------|--------|------|
-| `DEEPSEEK_API_KEY` | 否 | 空 | DeepSeek API 密钥 |
+| `LLM_API_KEY` | 否 | 空 | LLM API 密钥（支持 GLM/DeepSeek/Qwen） |
+| `LLM_BASE_URL` | 否 | DeepSeek | API 端点 URL |
+| `LLM_MODEL` | 否 | deepseek-chat | 模型名称 |
 
 配置文件（`config.py`）关键参数：
 
@@ -370,8 +398,10 @@ pecs-multi-agent/
 │   └── custom_critic_override_demo.py  # 自定义Critic示例
 │
 ├── scripts/               # 自动化脚本
-│   ├── run_all_ablation.sh       # 一键运行消融实验
-│   └── run_baseline_compare.sh   # 多框架基线对比
+│   ├── run_all_ablation.sh       # 一键运行消融实验（6组配置）
+│   ├── run_baseline_compare.sh   # 多框架基线对比
+│   ├── run_real_evaluation.sh    # 真实 API 评测一键脚本（Bash）
+│   └── run_real_evaluation.ps1   # 真实 API 评测一键脚本（PowerShell）
 │
 ├── results/               # 评测结果
 │   ├── target_report.json  # 完整评测报告
@@ -402,7 +432,7 @@ pecs-multi-agent/
 
 1. **启发式层覆盖有限**：目前只覆盖 benchmark 模式，真实场景需要更通用的缓存方案
 2. **串行执行**：四个角色为串行执行，无依赖步骤可并行化优化，暂未实现
-3. **Mock 搜索数据**：Web 搜索用 mock 优先保证可重复性，真实场景需要接实时搜索
+3. **搜索优先级**：Web 搜索默认优先使用真实 DuckDuckGo 搜索，失败时回退到 mock 数据保证可运行性
 4. **Synthesizer 边界情况**：极少数情况下 simple 任务的快速综合路径会遗漏关键信息（概率 < 5%，不影响评测结果）
 5. **样例集规模有限**：28道GAIA+6道WebShop为内置样例，非官方完整测试集，需接入真实数据集验证
 
@@ -413,7 +443,7 @@ pecs-multi-agent/
 | 官方数据集接入 | 内置样例集 | 接入GAIA 466题 + 真实WebShop环境 | P0 |
 | 并行执行 | 四角色串行 | 无依赖步骤并行化，降低延迟 | P1 |
 | 启发式泛化 | 仅覆盖benchmark模式 | 基于embedding相似度的通用缓存 | P1 |
-| 多模型支持 | 仅DeepSeek | 支持GPT-4/Claude/Qwen等多模型切换 | P2 |
+| 多模型支持 | GLM/DeepSeek/Qwen | 扩展支持 GPT-4/Claude 等更多模型 | P2 |
 | 流式输出 | 批量返回 | SSE流式输出，提升用户体验 | P2 |
 | 分布式部署 | 单机串行 | Redis状态共享 + 多worker并行 | P3 |
 

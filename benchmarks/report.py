@@ -13,7 +13,7 @@ from benchmarks.cost_eval import evaluate_cost_ablation
 from benchmarks.gaia_eval import evaluate_gaia, save_results
 from benchmarks.react_baseline import evaluate_react_gaia
 from benchmarks.webshop_eval import evaluate_react_webshop, evaluate_webshop
-from config import DEFAULT_TOKEN_BUDGET
+from config import DEFAULT_TOKEN_BUDGET, LLM_API_KEY
 
 
 TARGETS = {
@@ -107,8 +107,10 @@ def build_report(
             gaia_multi, gaia_react
         ),
         "note": (
-            "mode=sample/mock 表示使用项目内置可重复样例；真实 GAIA/AgentBench "
-            "成绩需要接入授权数据集和真实 WebShop 环境后重新运行。"
+            f"mode={'real_api' if LLM_API_KEY else 'sample/mock'} — "
+            + ("使用真实 LLM API (GLM-4.7-Flash) 运行评测。"
+               if LLM_API_KEY
+               else "使用项目内置可重复样例；配置 LLM_API_KEY 后可运行真实 API 评测。")
         ),
     }
     return report
@@ -127,13 +129,14 @@ def run_sample_report(
     cost_samples = min(num_gaia or 3, 3)
     cost_ablation = evaluate_cost_ablation(cost_samples, token_budget)
 
+    mode = "real_api" if LLM_API_KEY else "sample/mock"
     report = build_report(
         gaia_multi=gaia_multi,
         gaia_react=gaia_react,
         webshop_multi=webshop_multi,
         webshop_react=webshop_react,
         cost_ablation=cost_ablation,
-        mode="sample/mock",
+        mode=mode,
     )
     save_results(report, "target_report.json")
     return report

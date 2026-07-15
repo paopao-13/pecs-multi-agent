@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from benchmarks.gaia_eval import save_results
-from config import DEFAULT_TOKEN_BUDGET
+from config import DEFAULT_TOKEN_BUDGET, LLM_API_KEY
 from graph.builder import run_task
 from graph.token_budget import estimate_tokens
 from tools.webshop import DEFAULT_CATALOG
@@ -63,25 +63,14 @@ def run_webshop_task(
 
 def run_react_webshop_task(instruction: str, token_budget: int = DEFAULT_TOKEN_BUDGET) -> dict:
     """
-    Single-agent ReAct-style local baseline.
+    ReAct 单 Agent 基线 —— 使用同一 LLM 模型进行 WebShop 任务。
 
-    The baseline uses one greedy pass over product category keywords and does
-    not run a critic over price/attribute constraints. This mirrors the common
-    failure mode of single-step shopping agents on WebShop-style tasks.
+    与多智能体框架使用相同的 GLM 模型和 webshop 工具，
+    保证对比公平性。ReAct 单 Agent 负责推理、调用工具、输出答案。
     """
-    selected = _weak_react_select(instruction)
-    answer = (
-        f"SELECTED: {selected['id']} | {selected['name']}"
-        if selected
-        else "NO_MATCH"
-    )
-    tokens = estimate_tokens(instruction) + estimate_tokens(answer) + 120
-    return {
-        "query": instruction,
-        "final_answer": answer,
-        "token_used": min(tokens, token_budget),
-        "logs": ["[ReAct-WebShop] 单轮关键词匹配完成，未执行独立约束评审"],
-    }
+    from benchmarks.react_baseline import run_react_task
+    query = f"WebShop任务：{instruction}"
+    return run_react_task(query, token_budget, max_steps=5)
 
 
 def evaluate_webshop(
@@ -132,7 +121,7 @@ def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str)
     success_rate = success_count / len(samples) if samples else 0
     result = {
         "benchmark": "webshop_local_adapter",
-        "mode": "sample/mock",
+        "mode": "real_api" if LLM_API_KEY else "sample/mock",
         "agent_type": agent_type,
         "total_samples": len(samples),
         "success_count": success_count,
@@ -145,27 +134,3 @@ def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str)
     filename = "webshop_multi_agent.json" if agent_type == "multi_agent" else "webshop_react_baseline.json"
     save_results(result, filename)
     return result
-
-
-def _weak_react_select(instruction: str):
-    text = instruction.lower()
-    category_priority = [
-        ("tea", "tea"),
-        ("charger", "charger"),
-        ("usb-c", "charger"),
-        ("water bottle", "water bottle"),
-        ("bottle", "water bottle"),
-        ("mouse", "mouse"),
-    ]
-    desired = None
-    for keyword, category_hint in category_priority:
-        if keyword in text:
-            desired = category_hint
-            break
-
-    for item in DEFAULT_CATALOG:
-        item_text = f"{item['name']} {' '.join(item.get('attributes', []))}".lower()
-        if desired and desired in item_text:
-            return item
-
-    return DEFAULT_CATALOG[0] if DEFAULT_CATALOG else None

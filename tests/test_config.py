@@ -12,13 +12,15 @@ import importlib
 def test_api_key_from_env(monkeypatch):
     """通过环境变量设置 API Key 后能正确读取"""
     test_key = "test-key-from-env-12345"
-    monkeypatch.setenv("DEEPSEEK_API_KEY", test_key)
+    # LLM_API_KEY 是主变量，load_dotenv(override=False) 不会覆盖已设置的值
+    monkeypatch.setenv("LLM_API_KEY", test_key)
 
     # 重新加载 config 模块，使其重新读取环境变量
-    # （config.py 在 import 时通过 os.getenv 读取 DEEPSEEK_API_KEY）
     import config
     importlib.reload(config)
 
+    assert config.LLM_API_KEY == test_key
+    # 向后兼容别名也应同步
     assert config.DEEPSEEK_API_KEY == test_key
 
 

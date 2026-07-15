@@ -20,7 +20,7 @@ from graph.token_budget import (
     get_budget_policy,
     record_token_usage,
 )
-from config import MAX_ITERATIONS
+from config import MAX_ITERATIONS, LLM_API_KEY
 
 # Synthesizer 的系统提示词
 SYNTHESIZER_SYSTEM_PROMPT = """你是一个结果综合专家（Synthesizer），负责整合多个子任务的执行结果，生成最终答案。
@@ -78,9 +78,59 @@ def synthesizer_node(state: dict) -> dict:
     # Token 预算感知：预算紧张时简化综合
     budget_ratio = token_used / token_budget if token_budget > 0 else 0
     use_heuristics = state.get("use_heuristics", True)
+    has_api_key = bool(LLM_API_KEY)
+
+    # 判断是否为确定性任务（所有结果均来自 python/webshop 工具）
+    # 确定性工具自身给出精确输出，启发式抽取即可，无需 LLM 综合
+    is_deterministic = False
+    if results:
+        deterministic_actions = {"python", "webshop"}
+        is_deterministic = all(r.get("action") in deterministic_actions for r in results)
+
     heuristic_answer = synthesize_heuristic_answer(query, results) if use_heuristics else None
     direct_extractive_answer = False
-    if heuristic_answer:
+
+    if has_api_key and not is_deterministic:
+        # 真实 API 模式 + 搜索/知识类任务：LLM 综合为主
+        if budget_ratio > 0.95:
+            # 预算几乎耗尽，紧急模式
+            final_answer = _emergency_synthesize(query, results)
+            token_consumed = 0
+            logs.append(f"[Synthesizer] 紧急模式（预算 {budget_ratio:.0%}），直接拼接结果")
+            scheduler_decisions = append_scheduler_decision(
+                state,
+                "synthesizer",
+                "emergency_synthesize",
+                "预算超过95%，强制使用已有结果输出",
+                estimated_tokens_saved=max(250, estimate_tokens(results_summary)),
+            )
+        else:
+            # LLM 综合
+            prompt = f"""
+用户原始问题: {query}
+
+各步骤执行结果:
+{results_summary}
+
+请综合以上结果，生成最终答案。答案要直接回应用户的问题。
+"""
+            final_answer, token_consumed = call_llm(prompt, SYNTHESIZER_SYSTEM_PROMPT, role="synthesizer")
+            # LLM 失败时回退到启发式
+            if not final_answer or final_answer.startswith("[LLM调用失败]"):
+                if heuristic_answer:
+                    final_answer = heuristic_answer
+                    direct_extractive_answer = True
+                    token_consumed = 0
+                    logs.append("[Synthesizer] LLM综合失败，回退到启发式抽取")
+                else:
+                    final_answer = _emergency_synthesize(query, results)
+                    token_consumed = 0
+                    logs.append("[Synthesizer] LLM综合失败且启发式未命中，紧急拼接")
+            else:
+                logs.append(f"[Synthesizer] LLM综合完成 (消耗 {token_consumed} tokens)")
+            scheduler_decisions = state.get("scheduler_decisions", [])
+    elif heuristic_answer:
+        # 确定性任务或离线模式：启发式综合（工具精确输出，无需 LLM）
         direct_extractive_answer = True
         final_answer = heuristic_answer
         token_consumed = 0
@@ -117,7 +167,7 @@ def synthesizer_node(state: dict) -> dict:
             estimated_tokens_saved=max(150, estimate_tokens(results_summary)),
         )
     else:
-        # 正常综合
+        # 正常综合（离线模式下的 LLM mock 调用）
         prompt = f"""
 用户原始问题: {query}
 

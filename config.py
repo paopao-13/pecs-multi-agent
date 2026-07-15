@@ -1,14 +1,19 @@
 """
 项目配置文件
-管理 DeepSeek API 密钥、模型参数、Token 预算等全局配置
+管理 LLM API 密钥、模型参数、Token 预算等全局配置
 
 配置加载优先级（高→低）：
   1. 环境变量（.env / 平台注入）— 用于 API Key 等敏感信息
   2. experiments/config.yaml — 用于模型参数、预算阈值、执行限制等实验配置
   3. 代码级默认值（本文件硬编码）— 兜底，确保无 YAML 时也可运行
 
+多 Provider 支持：
+  通过 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 环境变量配置任意 OpenAI 兼容的 LLM。
+  兼容旧的 DEEPSEEK_* 变量名（LLM_* 优先）。
+  支持的 Provider：DeepSeek-V3、GLM-4.7-Flash（免费）、Qwen 等。
+
 YAML 配置与代码参数映射关系：
-  model.model_name              → DEEPSEEK_MODEL
+  model.model_name              → LLM_MODEL
   model.max_tokens              → LLM_MAX_TOKENS
   model.temperatures.*           → llm_utils.ROLE_TEMPERATURES（由 llm_utils 单独读取）
   token_budget.total            → DEFAULT_TOKEN_BUDGET
@@ -52,16 +57,21 @@ def _yaml_get(*keys, default=None):
     return val if val is not None else default
 
 
-# ============ DeepSeek API 配置 ============
-# 从环境变量读取，部署时通过 .env 或平台环境变量注入
-# 请勿在代码中硬编码 API Key
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
+# ============ LLM API 配置（多 Provider 支持）============
+# 优先读取通用变量名 LLM_*，兼容旧的 DEEPSEEK_*
+# 支持的 Provider：
+#   DeepSeek-V3:   LLM_BASE_URL=https://api.deepseek.com/v1       LLM_MODEL=deepseek-chat
+#   GLM-4.7-Flash:  LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4/  LLM_MODEL=glm-4.7-flash  (免费)
+#   Qwen:           LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1  LLM_MODEL=qwen-plus
 
-# DeepSeek API 基础地址（兼容 OpenAI 接口格式）
-DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+LLM_API_KEY = os.getenv("LLM_API_KEY") or os.getenv("DEEPSEEK_API_KEY", "")
+LLM_BASE_URL = os.getenv("LLM_BASE_URL") or os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1")
+LLM_MODEL = os.getenv("LLM_MODEL") or _yaml_get("model", "model_name", default="deepseek-chat")
 
-# 使用的模型名称 — 对应 YAML: model.model_name
-DEEPSEEK_MODEL = _yaml_get("model", "model_name", default="deepseek-chat")
+# 向后兼容：保留 DEEPSEEK_* 别名（现有代码引用这些变量名）
+DEEPSEEK_API_KEY = LLM_API_KEY
+DEEPSEEK_BASE_URL = LLM_BASE_URL
+DEEPSEEK_MODEL = LLM_MODEL
 
 # ============ LLM 调用参数 ============
 LLM_TEMPERATURE = _yaml_get("model", "temperatures", "default", default=0.1)  # 默认温度

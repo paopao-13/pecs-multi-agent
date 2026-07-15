@@ -22,9 +22,10 @@ BUDGETED_TOKEN_BUDGET = 800
 # 宽预算：不触发任何预算调度
 UNBUDGETED_TOKEN_BUDGET = 50000
 
-# 选用多步骤复杂任务进行消融（确保 Token 消耗足够触发调度）
-# gaia_l1_012 (3步搜索+计算), gaia_l1_013 (2步搜索+计算), gaia_l1_015 (2步搜索+计算)
-COST_ABLATION_INDICES = [11, 12, 14]
+# 选用计算类任务进行消融（避免搜索超时，确保 LLM 全流程调用触发预算调度）
+# gaia_l1_016 (2^30-2^20), gaia_l1_021 (3^18-3^12), gaia_l1_026 (5^12-5^8)
+# 禁用启发式后，Planner/Executor/Critic/Synthesizer 全部走 LLM，Token 消耗足够触发三级降级
+COST_ABLATION_INDICES = [15, 20, 25]
 
 
 def evaluate_cost_ablation(

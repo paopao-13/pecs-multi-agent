@@ -2,7 +2,7 @@
 # ====================================================================
 # PECS 多智能体框架 —— 消融实验一键运行脚本
 #
-# 依次运行4组消融配置（full_pecs / no_critic / no_synthesizer / single_agent），
+# 依次运行6组消融配置（full_pecs / no_critic / no_synthesizer / single_agent / critic_no_reflect / synthesizer_no_replan），
 # 最后汇总结果到 results/ablation_report.json。
 #
 # 用法:
@@ -33,8 +33,8 @@ else
 fi
 echo ""
 
-# ---------- 依次运行4组消融配置 ----------
-CONFIGS=("full_pecs" "no_critic" "no_synthesizer" "single_agent")
+# ---------- 依次运行6组消融配置 ----------
+CONFIGS=("full_pecs" "no_critic" "no_synthesizer" "single_agent" "critic_no_reflect" "synthesizer_no_replan")
 
 for config in "${CONFIGS[@]}"; do
     echo ""
