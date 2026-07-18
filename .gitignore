@@ -43,6 +43,9 @@ results/*.json
 !results/gaia_run.json
 !results/gaia_multi_agent.json
 !results/gaia_react_baseline.json
+!results/gaia_official_run.json
+!results/gaia_official_multi_agent.json
+!results/gaia_official_react.json
 !results/webshop_run.json
 !results/webshop_multi_agent.json
 !results/webshop_react_baseline.json

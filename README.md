@@ -108,8 +108,23 @@ sequenceDiagram
 | WebShop 成功率 | 0% (0/12) | 25.0% (3/12) | +25.0pp | +18pp | ✅ 真实环境达标 |
 | Token/task 消耗 | 26,438 | 3,481 | -86.8% | ≥30% | ✅ |
 
+**GAIA 官方数据集验证（行业 benchmark，非内置样例）**：
+
+| 指标 | ReAct 基线 | PECS 多智能体 | 差值 | 统计检验 |
+|------|:-----------:|:----------:|:--------:|:--------:|
+| 准确率（总体） | 15.1% (8/53) | 26.4% (14/53) | +11.3pp | McNemar p=0.11 |
+| 准确率（无附件） | 21.6% (8/37) | 37.8% (14/37) | +16.2pp | - |
+| 准确率（有附件） | 0% (0/10) | 0% (0/10) | 0pp | 附件题均失败 |
+| 平均 Token/题 | 4,063 | 17,256 | PECS 更高* | - |
+
+> 数据来源：HuggingFace `gaia-benchmark/GAIA` Level 1 validation set（53题），非内置 mock。含真实搜索、多步推理、文件解析（xlsx/pdf/py/mp3）。3 道 mp3 附件题因需多模态模型标记 skipped。
+>
+> \* PECS Token 更高：多角色协作（Planner+Executor+Critic+Synthesizer）的固有开销，在难题上 PECS 搜索更深入导致 token 上涨。内置 33 题 PECS Token 更低，因计算题启发式 0-token 秒杀拉低了均值。
+>
+> **统计显著性**：McNemar 检验 p=0.11（>0.05），差异**不显著**。b=8（PECS对ReAct错）、c=2（PECS错ReAct对），方向一致支持 PECS，但样本量 n=53 仍偏小，不足以达到统计显著。需 n≥100 才有 80% 把握检出 11pp 差异。
+
 > **三大局限诚实声明（招聘方追问前必读）**：
-> 1. **GAIA 样本偏计算**：33 题中 16 道大数计算（启发式 0-token 秒杀）+ 10 道知识检索 + 4 道文件解析 + 3 道网页浏览，非官方 165 题分布。扩样后 ReAct 准确率从 80% 升至 87.88%（简单计算题 ReAct 用 python 工具也能做对），导致差值从 +20pp 缩小至 +12.1pp。但 PECS 仍保持 100% 准确率，且 Token 降本从 38.8% 提升至 86.8%（ReAct 在文件解析题上 token 暴涨）。PECS 的核心优势集中在：文件解析 100% (4/4) vs ReAct 25% (1/4)、Token 降本 86.8%。
+> 1. **GAIA 样本偏计算**：内置 33 题中 16 道大数计算（启发式 0-token 秒杀）+ 10 道知识检索 + 4 道文件解析 + 3 道网页浏览，非官方 165 题分布。扩样后 ReAct 准确率从 80% 升至 87.88%（简单计算题 ReAct 用 python 工具也能做对），导致差值从 +20pp 缩小至 +12.1pp。但 PECS 仍保持 100% 准确率，且 Token 降本从 38.8% 提升至 86.8%（ReAct 在文件解析题上 token 暴涨）。PECS 的核心优势集中在：文件解析 100% (4/4) vs ReAct 25% (1/4)、Token 降本 86.8%。**已接入 GAIA 官方 Level 1 validation set（53题）验证**，PECS 26.4% vs ReAct 15.1%（+11.3pp），方向一致但 McNemar p=0.11 不显著（n=53 仍偏小）。
 > 2. **WebShop 真实环境达标（25.0% vs 0%, +25.0pp）**：在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥 + text_rich 模式,非本地 mock），从 WebShop-small 数据集 6910 个真实 goals 中随机采样 12 道服装类 instruction。PECS 3/12 成功（reward≥0.5）vs ReAct 0/12。公平对比设计：PECS 的 Executor 启发式规则层（搜到结果即 click[ASIN] 进详情页、click[Buy Now] 触发结算）vs ReAct 纯 LLM 决策（无规则层兜底）。关键修复：① 直接实例化 WebAgentTextEnv 绕过 gym wrapper，让 reset(task_index) 按 instruction 语义匹配真实 goal；② observation_mode=text_rich 输出 [button] 标记和 ASIN；③ Critic 用 reward 信号替代 SELECTED 判定。Token 方面 PECS 2576 vs ReAct 5958（降本 56.8%，ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转+幻觉答案）。
 >
 >    **消融实验（证明优势来自"打破 search 循环"而非"有规则层"本身）**：新增 ReAct-light 中间档（只有"Buy按钮→click[Buy Now]"购物常识，不强制 click[ASIN] 进详情页）。三组对比：PECS 完整规则层 25.0% / ReAct-light 轻量规则层 0.0% / ReAct 纯 LLM 0.0%。ReAct-light vs ReAct = +0.0pp（轻量规则增量贡献为零），PECS vs ReAct-light = +25.0pp。结论：Buy 规则单独存在无效（LLM 不点商品进详情页，永远到不了有 Buy 按钮的页面，15 步全在 search 页循环 reward=0）；PECS 的 +25pp 完全来自"搜到结果即 click[ASIN] 打破 search 循环"这一具体 Executor 启发式，而非"加规则层"这个动作本身。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
