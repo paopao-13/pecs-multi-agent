@@ -1,0 +1,20 @@
+{
+  "benchmark": "webshop",
+  "mode": "real",
+  "multi_agent": {
+    "success_rate": 0.0,
+    "success_count": 0,
+    "total_samples": 6,
+    "avg_tokens_per_task": 5204
+  },
+  "react_baseline": {
+    "success_rate": 0.0,
+    "success_count": 0,
+    "total_samples": 6,
+    "avg_tokens_per_task": 7314
+  },
+  "diff": {
+    "success_pp": 0.0,
+    "token_savings_pct": 28.8
+  }
+}

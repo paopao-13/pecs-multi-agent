@@ -1,0 +1,124 @@
+{
+  "benchmark": "webshop_local_adapter",
+  "mode": "real_api",
+  "agent_type": "react_baseline",
+  "total_samples": 6,
+  "success_count": 0,
+  "success_rate": 0.0,
+  "total_tokens": 43886,
+  "avg_tokens_per_task": 7314,
+  "details": [
+    {
+      "task_id": "webshop_001",
+      "instruction": "Find an organic jasmine green tea with at least 100 bags under $20.",
+      "target_id": "ws_tea_001",
+      "predicted": "找到了符合条件的商品：Harney & Sons 有机茉莉花绿茶（100袋，$15.00）、Stash Tea 有机茉莉花绿茶（100袋，$12.99）和 Bigelow 有机茉莉花绿茶（100袋，$18.99），均低于$20且为有机产品。",
+      "success": false,
+      "tokens_used": 5032,
+      "logs": [
+        "[ReAct] 开始处理任务: WebShop任务：Find an organic jasmine green tea with at least 100 bags under $20.",
+        "[ReAct] 步骤1 - LLM推理 (消耗 427 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤2 - LLM推理 (消耗 919 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤3 - LLM推理 (消耗 2860 tokens)",
+        "[ReAct] 得到最终答案: 找到了符合条件的商品：Harney & Sons 有机茉莉花绿茶（100袋，$15.00）、Stash Tea 有机茉莉花绿茶（100袋，$12.99）和 Bi..."
+      ]
+    },
+    {
+      "task_id": "webshop_002",
+      "instruction": "Find a decaf chamomile herbal tea under $16.",
+      "target_id": "ws_tea_002",
+      "predicted": "未能完成任务。",
+      "success": false,
+      "tokens_used": 6673,
+      "logs": [
+        "[ReAct] 开始处理任务: WebShop任务：Find a decaf chamomile herbal tea under $16.",
+        "[ReAct] 步骤1 - LLM推理 (消耗 424 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤2 - LLM推理 (消耗 1362 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤3 - LLM推理 (消耗 781 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤4 - LLM推理 (消耗 1304 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤5 - LLM推理 (消耗 737 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ..."
+      ]
+    },
+    {
+      "task_id": "webshop_003",
+      "instruction": "Need a USB-C 65W GaN dual port charger under $35.",
+      "target_id": "ws_usb_001",
+      "predicted": "已成功购买 USB-C 65W GaN Dual Port Charger，价格 $29.99，符合预算要求（低于$35）。",
+      "success": false,
+      "tokens_used": 6225,
+      "logs": [
+        "[ReAct] 开始处理任务: WebShop任务：Need a USB-C 65W GaN dual port charger under $35.",
+        "[ReAct] 步骤1 - LLM推理 (消耗 433 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤2 - LLM推理 (消耗 988 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤3 - LLM推理 (消耗 3920 tokens)",
+        "[ReAct] 得到最终答案: 已成功购买 USB-C 65W GaN Dual Port Charger，价格 $29.99，符合预算要求（低于$35）。..."
+      ]
+    },
+    {
+      "task_id": "webshop_004",
+      "instruction": "Buy an insulated stainless steel 24 oz water bottle under $25.",
+      "target_id": "ws_bottle_001",
+      "predicted": "未能完成任务。",
+      "success": false,
+      "tokens_used": 14428,
+      "logs": [
+        "[ReAct] 开始处理任务: WebShop任务：Buy an insulated stainless steel 24 oz water bottle under $25.",
+        "[ReAct] 步骤1 - LLM推理 (消耗 427 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤2 - LLM推理 (消耗 9063 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤3 - LLM推理 (消耗 779 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤4 - LLM推理 (消耗 1302 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤5 - LLM推理 (消耗 755 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ..."
+      ]
+    },
+    {
+      "task_id": "webshop_005",
+      "instruction": "I want a silent wireless ergonomic mouse under $30.",
+      "target_id": "ws_mouse_001",
+      "predicted": "根据搜索结果，以下是几款符合要求的静音无线人体工学鼠标（价格均低于30美元）：\n1. **Logitech M585 Wireless Mouse** - 约$24.99，静音点击，人体工学设计\n2. **VicTsing Ergonomic Wireless Mouse** - 约$19.99，静音按钮，人体工学\n3. **Anker Ergonomic Wireless Mouse** - 约$25.99，静音设计\n\n这些鼠标都满足\"静音、无线、人体工学、低于30美元\"的条件。建议选择 Logitech M585，因为它在静音和人体工学方面评价最好。",
+      "success": false,
+      "tokens_used": 6859,
+      "logs": [
+        "[ReAct] 开始处理任务: WebShop任务：I want a silent wireless ergonomic mouse under $30.",
+        "[ReAct] 步骤1 - LLM推理 (消耗 421 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤2 - LLM推理 (消耗 933 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤3 - LLM推理 (消耗 4699 tokens)",
+        "[ReAct] 得到最终答案: 根据搜索结果，以下是几款符合要求的静音无线人体工学鼠标（价格均低于30美元）：\n1. **Logitech M585 Wireless Mouse** - 约$..."
+      ]
+    },
+    {
+      "task_id": "webshop_006",
+      "instruction": "Find a compact USB-C charger under $18.",
+      "target_id": "ws_usb_002",
+      "predicted": "由于搜索工具无法返回真实商品数据（所有搜索均返回模拟空结果），我无法在WebShop中找到符合\"compact USB-C charger under $18\"条件的商品。请确保搜索API已正确接入并重新尝试。",
+      "success": false,
+      "tokens_used": 4669,
+      "logs": [
+        "[ReAct] 开始处理任务: WebShop任务：Find a compact USB-C charger under $18.",
+        "[ReAct] 步骤1 - LLM推理 (消耗 417 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤2 - LLM推理 (消耗 1390 tokens)",
+        "[ReAct] 执行 webshop: WebShop 交互完成（共 15 步, 奖励=0.000）\n最终页面摘要：<!DOCTYPE html>\n<html>\n  <head>\n    <link ...",
+        "[ReAct] 步骤3 - LLM推理 (消耗 766 tokens)",
+        "[ReAct] 执行 search: [模拟搜索] 未找到与 'compact USB-C charger under 18' 相关的结果。这是一个模拟搜索结果，部署时请接入真实搜索 API。...",
+        "[ReAct] 步骤4 - LLM推理 (消耗 1205 tokens)",
+        "[ReAct] 得到最终答案: 由于搜索工具无法返回真实商品数据（所有搜索均返回模拟空结果），我无法在WebShop中找到符合\"compact USB-C charger under $18\"..."
+      ]
+    }
+  ]
+}
