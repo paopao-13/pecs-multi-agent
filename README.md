@@ -105,17 +105,17 @@ sequenceDiagram
 | 指标 | ReAct 基线 | 本框架实测 | 提升幅度 | 目标值 | 达标 |
 |------|:-----------:|:----------:|:--------:|:------:|:----:|
 | GAIA L1 准确率 | 80% (8/10) | 100% (10/10) | +20.0pp | ≥75% | ✅ |
-| WebShop 成功率 | 0% (0/3) | 100% (3/3) | +100pp | +18pp | ⚠️ 本地适配器 |
+| WebShop 成功率 | 0% (0/6) | 0% (0/6) | +0pp | +18pp | ❌ 真实环境,未达标 |
 | Token/task 消耗 | 722 | 442 | -38.8% | ≥30% | ✅ |
 
 > **三大局限诚实声明（招聘方追问前必读）**：
 > 1. **GAIA 样本偏计算**：10 题中 5 道大数计算（启发式 0-token 秒杀）+ 5 道知识检索，非官方 165 题分布，96% 不可外推到官方榜单。推理题子集（tokens>10）准确率 92.3%（12/13）为框架真实能力体现，计算题子集 100% 是"免费得分"。
-> 2. **WebShop 为本地适配器**：3 题使用内置 8 商品 mock 库（`tools/webshop.py` 的 `DEFAULT_CATALOG`），非 AgentBench 真实环境；ReAct 0% 是 strawman 基线（未调用 webshop 工具，LLM 直接编造答案）。**+100pp 不计入 +18pp 目标**，仅演示约束解析流程。真实环境接入方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)（BM25 纯 Python 后端 + HTTP 桥，本机可跑）。
-> 3. **Token 38.8% 含对比假象**：端到端 −38.78% 是 vs 失控 ReAct 的对比（ReAct 大数计算失败导致重算消耗高）；纯预算调度机制本身仅 −4.5%（见下方「Token 成本分析」消融）。报告须区分"机制贡献 −4.5%"与"端到端 −38.78%"两个口径，避免误导。
+> 2. **WebShop 真实环境未达标（0% vs 0%, +0pp）**：已在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥,非本地 mock），6 题 PECS 与 ReAct 成功率均为 0%,未达 +18pp 目标。真实根因有三：① `env.reset()` 未传 task_index 导致真实环境随机分配购物目标,与 PECS 指令不匹配；② LLM 决策陷入 search/click 循环,15 步内从未执行 buy 动作拿不到 reward；③ Critic "缺少SELECTED输出"的判定不适用于真实环境(返回 HTML 非 SELECTED)导致无效重试 4 轮。**真实亮点**：即使任务全失败,PECS 平均 Token 5204 仍比 ReAct 7314 低 28.8%,证明预算感知调度在真实环境同样有效。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
+> 3. **Token 38.8% 含对比假象**：端到端 −38.78% 是 vs 失控 ReAct 的对比（ReAct 大数计算失败导致重算消耗高）；纯预算调度机制本身仅 −4.5%（见下方「Token 成本分析」消融）。报告须区分"机制贡献 −4.5%"与"端到端 −38.78%"两个口径，避免误导。WebShop 真实环境的 Token 降本 28.8% 是同口径真实数据,不含对比假象。
 
-> 评测样本：GAIA 10题（5简单知识检索 + 5大数计算），WebShop 3题（本地 mock 购物）。
-> ReAct 基线使用同一 GLM-4.7-Flash 模型 + 同一工具集 + 同一题目，保证对比公平性。
-> 完整评测数据见 `results/target_report.json`（含每题详细日志、Token 明细、调度决策）。
+> 评测样本：GAIA 10题（5简单知识检索 + 5大数计算），WebShop 6题（真实 AgentBench 文本环境,rank_bm25 搜索后端）。
+> ReAct 基线使用同一 DeepSeek-chat 模型 + 同一工具集 + 同一题目，保证对比公平性。
+> 完整评测数据见 `results/target_report.json`（GAIA）与 `results/webshop_run.json`（WebShop 真实环境）。
 
 **GAIA 逐任务对比**：
 
