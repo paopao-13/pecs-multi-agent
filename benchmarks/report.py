@@ -121,7 +121,12 @@ def run_sample_report(
     num_webshop: Optional[int] = None,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
 ) -> dict:
-    """Run local sample/mock benchmarks and save an aggregated report."""
+    """Run local sample/mock benchmarks and save an aggregated report.
+
+    注意：此函数会重新运行所有评测（GAIA + WebShop + 成本消融）。
+    如果已有真实环境评测数据（results/webshop_run.json 等），建议用
+    build_report_from_files() 从已有数据构建报告，避免重跑覆盖真实数据。
+    """
     gaia_multi = evaluate_gaia(num_gaia, token_budget)
     gaia_react = evaluate_react_gaia(num_gaia, token_budget)
     webshop_multi = evaluate_webshop(num_webshop, token_budget)
@@ -138,6 +143,71 @@ def run_sample_report(
         cost_ablation=cost_ablation,
         mode=mode,
     )
+    save_results(report, "target_report.json")
+    return report
+
+
+def _load_result(filename: str) -> Optional[dict]:
+    """从 results/ 目录读取已有评测结果 JSON。"""
+    import json
+    path = os.path.join("results", filename)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def build_report_from_files() -> dict:
+    """从已有结果 JSON 文件构建聚合报告，不重跑任何评测。
+
+    解决数据不一致问题：run_sample_report() 在无 WEBSHOP_SERVER_URL 时会
+    重跑 evaluate_webshop() 走本地 mock，覆盖真实环境的 12 题数据。
+    本函数直接读取 results/ 下的已有 JSON，保证报告与原始数据一致。
+
+    需要的文件（缺失的会跳过对应章节）：
+    - gaia_multi_agent.json / gaia_react_baseline.json
+    - webshop_multi_agent.json / webshop_react_baseline.json
+    - cost_ablation.json
+    可选：webshop_run.json（含三组消融对比，会附加到报告）
+    """
+    gaia_multi = _load_result("gaia_multi_agent.json")
+    gaia_react = _load_result("gaia_react_baseline.json")
+    webshop_multi = _load_result("webshop_multi_agent.json")
+    webshop_react = _load_result("webshop_react_baseline.json")
+    cost_ablation = _load_result("cost_ablation.json")
+
+    if not gaia_multi or not gaia_react:
+        raise FileNotFoundError(
+            "缺少 GAIA 评测结果，请先运行 python run_resumable.py 生成 "
+            "results/gaia_multi_agent.json 和 results/gaia_react_baseline.json"
+        )
+    if not webshop_multi or not webshop_react:
+        raise FileNotFoundError(
+            "缺少 WebShop 评测结果，请先运行 python run_webshop.py 生成 "
+            "results/webshop_multi_agent.json 和 results/webshop_react_baseline.json"
+        )
+
+    mode = "real_api" if LLM_API_KEY else "sample/mock"
+    report = build_report(
+        gaia_multi=gaia_multi,
+        gaia_react=gaia_react,
+        webshop_multi=webshop_multi,
+        webshop_react=webshop_react,
+        cost_ablation=cost_ablation,
+        mode=mode,
+    )
+
+    # 附加 WebShop 三组消融对比（如果有 webshop_run.json）
+    webshop_run = _load_result("webshop_run.json")
+    if webshop_run and "react_light" in webshop_run:
+        report["webshop_ablation"] = {
+            "description": "WebShop 规则层消融实验（证明 PECS 优势来源）",
+            "pecs_full": webshop_run.get("multi_agent", {}),
+            "react_light": webshop_run.get("react_light", {}),
+            "react_pure_llm": webshop_run.get("react_baseline", {}),
+            "diff": webshop_run.get("diff", {}),
+        }
+
     save_results(report, "target_report.json")
     return report
 
@@ -199,8 +269,14 @@ def _extract_role_token_stats(
 
 
 if __name__ == "__main__":
-    gaia_n = int(os.getenv("GAIA_SAMPLES", "0"))  # 0 = 全部样本
-    webshop_n = int(os.getenv("WEBSHOP_SAMPLES", "6"))
-    if gaia_n == 0:
-        gaia_n = None
-    run_sample_report(gaia_n, webshop_n)
+    import sys
+    # 默认从已有结果文件构建报告（不重跑，避免覆盖真实环境数据）
+    # 加 --rerun 参数才重跑所有评测
+    if "--rerun" in sys.argv:
+        gaia_n = int(os.getenv("GAIA_SAMPLES", "0"))  # 0 = 全部样本
+        webshop_n = int(os.getenv("WEBSHOP_SAMPLES", "6"))
+        if gaia_n == 0:
+            gaia_n = None
+        run_sample_report(gaia_n, webshop_n)
+    else:
+        build_report_from_files()
