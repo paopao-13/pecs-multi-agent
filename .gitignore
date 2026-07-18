@@ -40,6 +40,9 @@ htmlcov/
 results/*.json
 !results/target_report.json
 !results/error_stat.json
+!results/gaia_run.json
+!results/gaia_multi_agent.json
+!results/gaia_react_baseline.json
 !results/webshop_run.json
 !results/webshop_multi_agent.json
 !results/webshop_react_baseline.json

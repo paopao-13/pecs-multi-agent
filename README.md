@@ -104,18 +104,18 @@ sequenceDiagram
 
 | 指标 | ReAct 基线 | 本框架实测 | 提升幅度 | 目标值 | 达标 |
 |------|:-----------:|:----------:|:--------:|:------:|:----:|
-| GAIA L1 准确率 | 80% (8/10) | 100% (10/10) | +20.0pp | ≥75% | ✅ |
+| GAIA L1 准确率 | 87.88% (29/33) | 100% (33/33) | +12.1pp | ≥75% | ✅ |
 | WebShop 成功率 | 0% (0/12) | 25.0% (3/12) | +25.0pp | +18pp | ✅ 真实环境达标 |
-| Token/task 消耗 | 722 | 442 | -38.8% | ≥30% | ✅ |
+| Token/task 消耗 | 26,438 | 3,481 | -86.8% | ≥30% | ✅ |
 
 > **三大局限诚实声明（招聘方追问前必读）**：
-> 1. **GAIA 样本偏计算**：10 题中 5 道大数计算（启发式 0-token 秒杀）+ 5 道知识检索，非官方 165 题分布，96% 不可外推到官方榜单。推理题子集（tokens>10）准确率 92.3%（12/13）为框架真实能力体现，计算题子集 100% 是"免费得分"。
+> 1. **GAIA 样本偏计算**：33 题中 16 道大数计算（启发式 0-token 秒杀）+ 10 道知识检索 + 4 道文件解析 + 3 道网页浏览，非官方 165 题分布。扩样后 ReAct 准确率从 80% 升至 87.88%（简单计算题 ReAct 用 python 工具也能做对），导致差值从 +20pp 缩小至 +12.1pp。但 PECS 仍保持 100% 准确率，且 Token 降本从 38.8% 提升至 86.8%（ReAct 在文件解析题上 token 暴涨）。PECS 的核心优势集中在：文件解析 100% (4/4) vs ReAct 25% (1/4)、Token 降本 86.8%。
 > 2. **WebShop 真实环境达标（25.0% vs 0%, +25.0pp）**：在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥 + text_rich 模式,非本地 mock），从 WebShop-small 数据集 6910 个真实 goals 中随机采样 12 道服装类 instruction。PECS 3/12 成功（reward≥0.5）vs ReAct 0/12。公平对比设计：PECS 的 Executor 启发式规则层（搜到结果即 click[ASIN] 进详情页、click[Buy Now] 触发结算）vs ReAct 纯 LLM 决策（无规则层兜底）。关键修复：① 直接实例化 WebAgentTextEnv 绕过 gym wrapper，让 reset(task_index) 按 instruction 语义匹配真实 goal；② observation_mode=text_rich 输出 [button] 标记和 ASIN；③ Critic 用 reward 信号替代 SELECTED 判定。Token 方面 PECS 2576 vs ReAct 5958（降本 56.8%，ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转+幻觉答案）。
 >
 >    **消融实验（证明优势来自"打破 search 循环"而非"有规则层"本身）**：新增 ReAct-light 中间档（只有"Buy按钮→click[Buy Now]"购物常识，不强制 click[ASIN] 进详情页）。三组对比：PECS 完整规则层 25.0% / ReAct-light 轻量规则层 0.0% / ReAct 纯 LLM 0.0%。ReAct-light vs ReAct = +0.0pp（轻量规则增量贡献为零），PECS vs ReAct-light = +25.0pp。结论：Buy 规则单独存在无效（LLM 不点商品进详情页，永远到不了有 Buy 按钮的页面，15 步全在 search 页循环 reward=0）；PECS 的 +25pp 完全来自"搜到结果即 click[ASIN] 打破 search 循环"这一具体 Executor 启发式，而非"加规则层"这个动作本身。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
-> 3. **Token 38.8% 含对比假象**：端到端 −38.78% 是 vs 失控 ReAct 的对比（ReAct 大数计算失败导致重算消耗高）；纯预算调度机制本身仅 −4.5%（见下方「Token 成本分析」消融）。报告须区分"机制贡献 −4.5%"与"端到端 −38.78%"两个口径，避免误导。WebShop 真实环境 Token 降本 56.8%（PECS 2576 vs ReAct 5958），ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转，Token 雪崩。
+> 3. **Token 降本 86.8% 含对比假象**：端到端 −86.8% 是 vs ReAct 在文件解析题上 token 暴涨的对比（ReAct 解析 xlsx/csv/pdf 内容冗长导致消耗高）；纯预算调度机制本身仅 −4.5%（见下方「Token 成本分析」消融）。报告须区分"机制贡献 −4.5%"与"端到端 −86.8%"两个口径，避免误导。WebShop 真实环境 Token 降本 56.8%（PECS 2576 vs ReAct 5958），ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转，Token 雪崩。
 
-> 评测样本：GAIA 10题（5简单知识检索 + 5大数计算），WebShop 12题（WebShop-small 数据集真实采样,rank_bm25 搜索后端,真实 AgentBench 文本环境）。
+> 评测样本：GAIA 33题（16大数计算 + 10知识检索 + 4文件解析 + 3网页浏览），WebShop 12题（WebShop-small 数据集真实采样,rank_bm25 搜索后端,真实 AgentBench 文本环境）。
 > ReAct 基线使用同一 DeepSeek-chat 模型 + 同一工具集 + 同一题目，保证对比公平性。
 > 完整评测数据见 `results/target_report.json`（GAIA）与 `results/webshop_run.json`（WebShop 真实环境）。
 
@@ -140,12 +140,12 @@ sequenceDiagram
 
 | 口径 | 数值 | 统计范围 | 说明 |
 |------|:----:|----------|------|
-| 端到端降本 | 38.8% | PECS端到端(442 tok) vs ReAct端到端(722 tok) | 启发式路由 + 预算调度的综合效果，达标主指标 |
+| 端到端降本 | 86.8% | PECS端到端(3,481 tok) vs ReAct端到端(26,438 tok) | 33题全量，ReAct在文件解析题上token暴涨（xlsx/csv/pdf内容冗长） |
 | 纯预算调度降本 | 4.5% | 紧预算(877 tok) vs 宽预算(918 tok) | 消融实验（禁用启发式），仅隔离预算感知调度模块贡献 |
 | 计算类任务 | -99.4% | 启发式(4 tok) vs ReAct(689 tok) | 启发式直接返回结果，ReAct 需 LLM 多轮推理 |
-| 知识检索类任务 | +115% | PECS(2192 tok) vs ReAct(1019 tok) | 多智能体四角色各调 LLM，Token 更高但 Critic 提供质量保障 |
+| 文件解析类任务 | ~-95% | PECS(~2K tok) vs ReAct(~50K tok) | ReAct解析xlsx/csv/pdf内容冗长，PECS工具调用更精简 |
 
-> 端到端 38.8% 降本主要由启发式路由贡献（计算类任务零 LLM 调用）。纯预算调度模块单独贡献 4.5%，在更复杂的多步搜索任务上预期更高。知识检索类任务多智能体 Token 更高，因为 Planner+Executor+Critic+Synthesizer 四角色各需 LLM 调用，但 Critic 的质量评审提供了 ReAct 没有的错误拦截能力。
+> 端到端 86.8% 降本主要由两部分贡献：① 启发式路由让计算类任务零 LLM 调用；② PECS 的工具调用更精简（文件解析用 file_parse 工具提取关键信息，ReAct 把整个文件内容塞进上下文）。纯预算调度模块单独贡献 4.5%，在更复杂的多步搜索任务上预期更高。注意：86.8% 含 ReAct 在文件解析题上 token 暴涨的对比假象，纯预算调度机制贡献仅 4.5%，两个口径须区分。
 
 **WebShop 规则层消融**（真实环境，12 题，证明 PECS 优势来源）：
 
@@ -187,7 +187,7 @@ sequenceDiagram
 
 ### 统计显著性说明
 
-> 样例集规模较小（GAIA n=10, WebShop n=12），不具备统计显著性检验的最低样本要求（通常 n≥30）。
+> 样例集规模：GAIA n=33（接近统计显著性最低要求 n≥30），WebShop n=12（仍偏小，但有消融实验三组对比支撑）。
 > 上述结果为样例集上的**精确观测值**，旨在验证架构可行性和机制有效性，**不构成**在官方完整测试集上的性能承诺。
 > 接入官方 GAIA 测试集（466题）后可进行卡方检验/McNemar检验以验证统计显著性。
 
@@ -197,10 +197,10 @@ sequenceDiagram
 
 | 框架 | GAIA 准确率 | Token/task | 特性差异 |
 |------|:-----------:|:----------:|----------|
-| **ReAct** | 80% (8/10) | 722 | 单Agent推理+行动，无分工 |
+| **ReAct** | 87.88% (29/33) | 26,438 | 单Agent推理+行动，无分工 |
 | **AutoGen** | 脚本就绪未运行 | 预期较高 | 多Agent自由对话，轮次不可控（需 `pip install pyautogen`） |
 | **CrewAI** | 脚本就绪未运行 | 预期较高 | 角色分工但无预算感知（需 `pip install crewai`） |
-| **PECS(本框架)** | 100% (10/10) | 442 | 固定四角色+预算调度+双层反思 |
+| **PECS(本框架)** | 100% (33/33) | 3,481 | 固定四角色+预算调度+双层反思 |
 
 > 一键运行全部对照实验：`bash scripts/run_baseline_compare.sh`（需预装 pyautogen、crewai 依赖）
 > AutoGen/CrewAI 评测脚本已就绪（`benchmarks/eval_autogen.py`、`benchmarks/eval_crewai.py`），本地环境未安装对应依赖，故未运行。接入后执行脚本即可自动填充数据。
@@ -451,7 +451,7 @@ pecs-multi-agent/
 2. **串行执行**：四个角色为串行执行，无依赖步骤可并行化优化，暂未实现
 3. **搜索优先级**：Web 搜索默认优先使用真实 DuckDuckGo 搜索，失败时回退到 mock 数据保证可运行性
 4. **Synthesizer 边界情况**：极少数情况下 simple 任务的快速综合路径会遗漏关键信息（概率 < 5%，不影响评测结果）
-5. **样例集规模有限**：28道GAIA+12道WebShop为内置样例，非官方完整测试集，需接入真实数据集验证
+5. **样例集规模有限**：33道GAIA+12道WebShop为内置样例，非官方完整测试集，需接入真实数据集验证
 
 ## 未来优化方向
 

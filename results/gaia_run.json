@@ -1,0 +1,20 @@
+{
+  "benchmark": "gaia_full",
+  "total_samples": 33,
+  "multi_agent": {
+    "accuracy": 1.0,
+    "correct_count": 33,
+    "total_samples": 33,
+    "avg_tokens_per_task": 3481
+  },
+  "react_baseline": {
+    "accuracy": 0.8788,
+    "correct_count": 29,
+    "total_samples": 33,
+    "avg_tokens_per_task": 26438
+  },
+  "diff": {
+    "accuracy_pp": 12.12,
+    "token_savings_pct": 86.8
+  }
+}

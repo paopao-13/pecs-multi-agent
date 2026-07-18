@@ -1,0 +1,274 @@
+{
+  "agent_type": "react_baseline",
+  "total_samples": 33,
+  "correct_count": 29,
+  "accuracy": 0.8788,
+  "total_tokens": 872468,
+  "avg_tokens_per_task": 26438,
+  "details": [
+    {
+      "task_id": "gaia_l1_001",
+      "question": "Python编程语言是哪一年发布的？用2024减去这个年份得到多少？",
+      "ground_truth": "33",
+      "predicted": "Python编程语言于1991年发布，2024减去1991等于33。",
+      "correct": true,
+      "tokens_used": 495
+    },
+    {
+      "task_id": "gaia_l1_002",
+      "question": "地球到太阳的平均距离大约是多少公里？除以光速(约30万km/s)再除以60，结果是多少分钟？",
+      "ground_truth": "8.3",
+      "predicted": "地球到太阳的平均距离约为1.496亿公里，除以光速（30万km/s）再除以60，结果约为8.31分钟。",
+      "correct": true,
+      "tokens_used": 603
+    },
+    {
+      "task_id": "gaia_l1_003",
+      "question": "Fibonacci数列的第20项是多少？",
+      "ground_truth": "6765",
+      "predicted": "Fibonacci数列的第20项是6765。",
+      "correct": true,
+      "tokens_used": 492
+    },
+    {
+      "task_id": "gaia_l1_004",
+      "question": "2024年诺贝尔物理学奖得主中，谁曾经获得过图灵奖？",
+      "ground_truth": "Geoffrey Hinton",
+      "predicted": "杰弗里·辛顿（Geoffrey E. Hinton）是2024年诺贝尔物理学奖得主中，唯一一位曾获得图灵奖的人（2018年图灵奖得主）。",
+      "correct": true,
+      "tokens_used": 689
+    },
+    {
+      "task_id": "gaia_l1_005",
+      "question": "100的阶乘(100!)有多少位数字？",
+      "ground_truth": "158",
+      "predicted": "100的阶乘有158位数字。",
+      "correct": true,
+      "tokens_used": 470
+    },
+    {
+      "task_id": "gaia_l1_006",
+      "question": "中国有多少个省级行政区？这个数字乘以5等于多少？",
+      "ground_truth": "170",
+      "predicted": "中国有34个省级行政区，34乘以5等于170。",
+      "correct": true,
+      "tokens_used": 503
+    },
+    {
+      "task_id": "gaia_l1_007",
+      "question": "太阳系行星按体积从大到小排序，第4大的行星是哪个？",
+      "ground_truth": "海王星",
+      "predicted": "海王星",
+      "correct": true,
+      "tokens_used": 602
+    },
+    {
+      "task_id": "gaia_l1_008",
+      "question": "2的100次方的结果首位数字是什么？",
+      "ground_truth": "1",
+      "predicted": "2的100次方的结果首位数字是1。",
+      "correct": true,
+      "tokens_used": 485
+    },
+    {
+      "task_id": "gaia_l1_009",
+      "question": "一年中白昼最短的节气叫什么？那天的日期大约是几月几号？",
+      "ground_truth": "冬至 12月21日",
+      "predicted": "一年中白昼最短的节气是冬至，日期大约在12月21日至23日之间，通常为12月22日。",
+      "correct": true,
+      "tokens_used": 626
+    },
+    {
+      "task_id": "gaia_l1_010",
+      "question": "光速约为每秒30万公里，从地球到月球的平均距离约为38.4万公里，光从地球到月球需要多少秒？结果保留一位小数。",
+      "ground_truth": "1.3",
+      "predicted": "光从地球到月球需要约1.3秒。",
+      "correct": true,
+      "tokens_used": 505
+    },
+    {
+      "task_id": "gaia_l1_011",
+      "question": "Geoffrey Hinton 出生于哪一年？用2024减去他的出生年份，他获得2024年诺贝尔物理学奖时是多少岁？",
+      "ground_truth": "77",
+      "predicted": "Geoffrey Hinton 出生于1947年。用2024减去1947得到77，所以他获得2024年诺贝尔物理学奖时是77岁。",
+      "correct": true,
+      "tokens_used": 874
+    },
+    {
+      "task_id": "gaia_l1_012",
+      "question": "请搜索2024年巴黎奥运会中国代表团获得的金牌数，再搜索2020年东京奥运会中国代表团的金牌数，计算两次金牌数的差值。",
+      "ground_truth": "2",
+      "predicted": "2024年巴黎奥运会中国代表团获得40枚金牌，2020年东京奥运会中国代表团获得38枚金牌，两次金牌数的差值为2枚。",
+      "correct": true,
+      "tokens_used": 586
+    },
+    {
+      "task_id": "gaia_l1_013",
+      "question": "请搜索地球赤道周长约多少公里，计算如果一个人以每小时5公里的速度绕赤道步行一圈，需要多少天？结果保留整数。",
+      "ground_truth": "334",
+      "predicted": "地球赤道周长约40075公里，以每小时5公里的速度步行一圈需要约334天。",
+      "correct": true,
+      "tokens_used": 579
+    },
+    {
+      "task_id": "gaia_l1_014",
+      "question": "请搜索2024年诺贝尔化学奖的三位得主姓名，然后判断其中是否有人的名字以字母'D'开头？",
+      "ground_truth": "是",
+      "predicted": "2024年诺贝尔化学奖得主是 David Baker、Demis Hassabis 和 John Jumper。其中 David Baker 和 Demis Hassabis 的名字以字母'D'开头，因此有人名字以'D'开头。",
+      "correct": true,
+      "tokens_used": 1057
+    },
+    {
+      "task_id": "gaia_l1_015",
+      "question": "请搜索俄罗斯陆地面积约多少万平方公里，除以中国陆地面积约960万平方公里，结果保留一位小数。",
+      "ground_truth": "1.8",
+      "predicted": "俄罗斯陆地面积约1710万平方公里，除以中国陆地面积约960万平方公里，结果约为1.8。",
+      "correct": true,
+      "tokens_used": 531
+    },
+    {
+      "task_id": "gaia_l1_016",
+      "question": "计算2的30次方减去2的20次方，结果是多少？",
+      "ground_truth": "1072693248",
+      "predicted": "2的30次方减去2的20次方的结果是1,072,693,248。",
+      "correct": true,
+      "tokens_used": 469
+    },
+    {
+      "task_id": "gaia_l1_017",
+      "question": "17的5次方是多少？",
+      "ground_truth": "1419857",
+      "predicted": "17的5次方是1419857。",
+      "correct": true,
+      "tokens_used": 431
+    },
+    {
+      "task_id": "gaia_l1_018",
+      "question": "前20个正整数的平方和是多少？即1²+2²+3²+...+20²。",
+      "ground_truth": "2870",
+      "predicted": "前20个正整数的平方和是2870。",
+      "correct": true,
+      "tokens_used": 989
+    },
+    {
+      "task_id": "gaia_l1_019",
+      "question": "13的阶乘(13!)是多少？",
+      "ground_truth": "6227020800",
+      "predicted": "13的阶乘(13!)是6,227,020,800。",
+      "correct": true,
+      "tokens_used": 465
+    },
+    {
+      "task_id": "gaia_l1_020",
+      "question": "从2到50的所有偶数的和是多少？即2+4+6+...+50。",
+      "ground_truth": "650",
+      "predicted": "650",
+      "correct": true,
+      "tokens_used": 654
+    },
+    {
+      "task_id": "gaia_l1_021",
+      "question": "3的18次方减去3的12次方，结果是多少？",
+      "ground_truth": "386889048",
+      "predicted": "387381768",
+      "correct": true,
+      "tokens_used": 457
+    },
+    {
+      "task_id": "gaia_l1_022",
+      "question": "7的10次方是多少？",
+      "ground_truth": "282475249",
+      "predicted": "7的10次方是282475249。",
+      "correct": true,
+      "tokens_used": 431
+    },
+    {
+      "task_id": "gaia_l1_023",
+      "question": "2的50次方减去2的45次方，结果是多少？",
+      "ground_truth": "1090715534753792",
+      "predicted": "2^50 - 2^45 = 32,985,348,833,280",
+      "correct": false,
+      "tokens_used": 469
+    },
+    {
+      "task_id": "gaia_l1_024",
+      "question": "11的8次方是多少？",
+      "ground_truth": "214358881",
+      "predicted": "11的8次方是214,358,881。",
+      "correct": true,
+      "tokens_used": 433
+    },
+    {
+      "task_id": "gaia_l1_025",
+      "question": "6的12次方是多少？",
+      "ground_truth": "2176782336",
+      "predicted": "6的12次方是2,176,782,336。",
+      "correct": true,
+      "tokens_used": 436
+    },
+    {
+      "task_id": "gaia_l1_026",
+      "question": "5的12次方减去5的8次方，结果是多少？",
+      "ground_truth": "243750000",
+      "predicted": "244125000",
+      "correct": true,
+      "tokens_used": 446
+    },
+    {
+      "task_id": "gaia_l1_027",
+      "question": "3的15次方减去3的10次方，结果是多少？",
+      "ground_truth": "14289858",
+      "predicted": "3的15次方减去3的10次方的结果是 14,238,216。",
+      "correct": true,
+      "tokens_used": 471
+    },
+    {
+      "task_id": "gaia_l1_028",
+      "question": "7的8次方减去7的5次方，结果是多少？",
+      "ground_truth": "5747994",
+      "predicted": "5762400",
+      "correct": true,
+      "tokens_used": 456
+    },
+    {
+      "task_id": "gaia_l1_029",
+      "question": "请解析 data/sales_data.xlsx 文件，计算所有产品的总利润是多少？",
+      "ground_truth": "292000",
+      "predicted": "根据 data/sales_data.xlsx 文件的数据，所有产品的总利润为 125000 元。",
+      "correct": false,
+      "tokens_used": 1055
+    },
+    {
+      "task_id": "gaia_l1_030",
+      "question": "请解析 data/employees.csv 文件，技术部门的平均薪资是多少？",
+      "ground_truth": "28333.33",
+      "predicted": "技术部门（Engineering）的平均薪资是 90,200 美元。",
+      "correct": false,
+      "tokens_used": 621
+    },
+    {
+      "task_id": "gaia_l1_031",
+      "question": "请解析 data/sales_report.pdf 文件，产品A和产品B的利润总和是多少？",
+      "ground_truth": "530000",
+      "predicted": "产品A和产品B的利润总和是20500元。",
+      "correct": false,
+      "tokens_used": 2147
+    },
+    {
+      "task_id": "gaia_l1_032",
+      "question": "请浏览 https://en.wikipedia.org/wiki/Tesla,_Inc. 网页，Tesla公司成立于哪一年？",
+      "ground_truth": "2003",
+      "predicted": "2003年",
+      "correct": true,
+      "tokens_used": 852335
+    },
+    {
+      "task_id": "gaia_l1_033",
+      "question": "请浏览 https://en.wikipedia.org/wiki/Python_(programming_language) 网页，Python首次发布是哪一年？",
+      "ground_truth": "1991",
+      "predicted": "Python首次发布于1991年。",
+      "correct": true,
+      "tokens_used": 606
+    }
+  ]
+}
