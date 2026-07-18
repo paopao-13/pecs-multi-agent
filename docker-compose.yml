@@ -1,0 +1,37 @@
+# 真实 WebShop 环境一键部署（Docker）
+#
+# 用法（在 docker-compose.yml 同级目录）：
+#   1) 克隆带 Dockerfile 的 WebShop fork 到 ./webshop-src
+#      git clone https://github.com/ai-nikolai/WebShop.git webshop-src
+#   2) docker compose up -d --build
+#   3) 容器暴露：
+#        - 8000 端口：我们的 gym HTTP 桥（PECS 连这个，WEBSHOP_SERVER_URL）
+#        - 3000 端口：官方 HTML 预览（可选，浏览器看效果）
+#
+# 说明：
+#   - 真实 WebShop 文本环境是进程内的（pyserini + Java + 索引），
+#     所以容器里既要装好 webshop 包与索引，也要跑我们的 HTTP 桥。
+#   - 首次构建约 10-30 分钟（下载商品数据 + 构建索引）。
+#   - 内存：small 数据集建议 >=8GB，全量 >=16GB。
+#   - 官方 HTML 预览（:3000）与 Agent 用的 HTTP 桥（:8000）是两个独立服务，
+#     PECS 只连 :8000。
+services:
+  webshop:
+    build:
+      context: ./webshop-src
+      dockerfile: Dockerfile
+    image: webshop:local
+    container_name: webshop
+    ports:
+      - "8000:8000"
+      - "3000:3000"
+    shm_size: "8gb"
+    environment:
+      - WEBSHOP_DATA_SIZE=small   # small / all
+    volumes:
+      # 把我们写的 HTTP 桥挂进容器（不依赖仓库内部结构）
+      - ./tools/webshop_server.py:/opt/webshop_server.py
+    command: >
+      bash -c "pip install flask &&
+               python /opt/webshop_server.py --host 0.0.0.0 --port 8000 --num-products 1000"
+    restart: unless-stopped
