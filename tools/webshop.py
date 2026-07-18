@@ -59,7 +59,7 @@ def _decide_webshop_action(goal: str, obs: str, history: list) -> str:
         f"当前页面：\n{obs[:2000]}\n\n"
         f"下一个动作："
     )
-    action, _ = call_llm(prompt, _WEBSHOP_DECISION_SYSTEM, role="executor", max_tokens=40)
+    action, _ = call_llm(prompt, _WEBSHOP_DECISION_SYSTEM, role="executor")
     return (action or "").strip()
 
 
