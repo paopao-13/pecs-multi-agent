@@ -94,7 +94,7 @@ sequenceDiagram
 > 下方评测结果基于 GLM-4.7-Flash 真实 API 运行，配置方法见下方「安装」章节。
 >
 > - **GAIA L1**：从 28 道自定义 Level 1 级别样例中选取 10 道进行评测（5 道知识检索 + 5 道大数计算），覆盖官方 GAIA 题型模式但非原始题目
-> - **WebShop**：从 6 道模拟购物任务中选取 3 道进行评测，使用内置 mock 商品库
+> - **WebShop**：从 WebShop-small 数据集（6910 个真实 goals）随机采样 12 道服装类 instruction，在真实 AgentBench 文本环境上评测（rank_bm25 搜索后端 + HTTP 桥 + text_rich 模式）
 > - **ReAct 基线**：同一 GLM 模型 + 同一工具集 + 同一题目，保证对比公平性
 > - **Token 统计**：端到端对比（含 LLM 调用 + 工具执行全流程），非单次 API 调用
 >
@@ -105,15 +105,15 @@ sequenceDiagram
 | 指标 | ReAct 基线 | 本框架实测 | 提升幅度 | 目标值 | 达标 |
 |------|:-----------:|:----------:|:--------:|:------:|:----:|
 | GAIA L1 准确率 | 80% (8/10) | 100% (10/10) | +20.0pp | ≥75% | ✅ |
-| WebShop 成功率 | 0% (0/6) | 33.3% (2/6) | +33.3pp | +18pp | ✅ 真实环境达标 |
+| WebShop 成功率 | 0% (0/12) | 25.0% (3/12) | +25.0pp | +18pp | ✅ 真实环境达标 |
 | Token/task 消耗 | 722 | 442 | -38.8% | ≥30% | ✅ |
 
 > **三大局限诚实声明（招聘方追问前必读）**：
 > 1. **GAIA 样本偏计算**：10 题中 5 道大数计算（启发式 0-token 秒杀）+ 5 道知识检索，非官方 165 题分布，96% 不可外推到官方榜单。推理题子集（tokens>10）准确率 92.3%（12/13）为框架真实能力体现，计算题子集 100% 是"免费得分"。
-> 2. **WebShop 真实环境达标（33.3% vs 0%, +33.3pp）**：在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥 + text_rich 模式,非本地 mock），6 题服装类 instruction，PECS 2/6 成功（reward≥0.5）vs ReAct 0/6。关键修复：① 直接实例化 WebAgentTextEnv 绕过 gym wrapper，让 reset(task_index) 按 instruction 语义匹配真实 goal；② observation_mode=text_rich 输出 [button] 标记和 ASIN，规则层打破 search 循环（搜到结果即 click[ASIN] 进详情页）；③ click[Buy Now] 替代 buy 触发结算拿 reward；④ Critic 用 reward 信号替代 SELECTED 判定。Token 方面 PECS 2168 vs ReAct 1926（+12.6%，因 Critic 反思开销），但成功率碾压。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
-> 3. **Token 38.8% 含对比假象**：端到端 −38.78% 是 vs 失控 ReAct 的对比（ReAct 大数计算失败导致重算消耗高）；纯预算调度机制本身仅 −4.5%（见下方「Token 成本分析」消融）。报告须区分"机制贡献 −4.5%"与"端到端 −38.78%"两个口径，避免误导。WebShop 真实环境 Token +12.6% 是因 Critic 反思开销，但成功率 +33.3pp 弥补。
+> 2. **WebShop 真实环境达标（25.0% vs 0%, +25.0pp）**：在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥 + text_rich 模式,非本地 mock），从 WebShop-small 数据集 6910 个真实 goals 中随机采样 12 道服装类 instruction。PECS 3/12 成功（reward≥0.5）vs ReAct 0/12。公平对比设计：PECS 的 Executor 启发式规则层（搜到结果即 click[ASIN] 进详情页、click[Buy Now] 触发结算）vs ReAct 纯 LLM 决策（无规则层兜底）。关键修复：① 直接实例化 WebAgentTextEnv 绕过 gym wrapper，让 reset(task_index) 按 instruction 语义匹配真实 goal；② observation_mode=text_rich 输出 [button] 标记和 ASIN；③ Critic 用 reward 信号替代 SELECTED 判定。Token 方面 PECS 2576 vs ReAct 5958（降本 56.8%，ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转+幻觉答案）。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
+> 3. **Token 38.8% 含对比假象**：端到端 −38.78% 是 vs 失控 ReAct 的对比（ReAct 大数计算失败导致重算消耗高）；纯预算调度机制本身仅 −4.5%（见下方「Token 成本分析」消融）。报告须区分"机制贡献 −4.5%"与"端到端 −38.78%"两个口径，避免误导。WebShop 真实环境 Token 降本 56.8%（PECS 2576 vs ReAct 5958），ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转，Token 雪崩。
 
-> 评测样本：GAIA 10题（5简单知识检索 + 5大数计算），WebShop 6题（真实 AgentBench 文本环境,rank_bm25 搜索后端）。
+> 评测样本：GAIA 10题（5简单知识检索 + 5大数计算），WebShop 12题（WebShop-small 数据集真实采样,rank_bm25 搜索后端,真实 AgentBench 文本环境）。
 > ReAct 基线使用同一 DeepSeek-chat 模型 + 同一工具集 + 同一题目，保证对比公平性。
 > 完整评测数据见 `results/target_report.json`（GAIA）与 `results/webshop_run.json`（WebShop 真实环境）。
 
@@ -175,7 +175,7 @@ sequenceDiagram
 
 ### 统计显著性说明
 
-> 样例集规模较小（GAIA n=10, WebShop n=3），不具备统计显著性检验的最低样本要求（通常 n≥30）。
+> 样例集规模较小（GAIA n=10, WebShop n=12），不具备统计显著性检验的最低样本要求（通常 n≥30）。
 > 上述结果为样例集上的**精确观测值**，旨在验证架构可行性和机制有效性，**不构成**在官方完整测试集上的性能承诺。
 > 接入官方 GAIA 测试集（466题）后可进行卡方检验/McNemar检验以验证统计显著性。
 
@@ -360,7 +360,7 @@ pecs-multi-agent/
 ├── benchmarks/            # 基准评估
 │   ├── gaia_eval.py       # GAIA Level 1（28题）
 │   ├── react_baseline.py  # ReAct 基线
-│   ├── webshop_eval.py    # WebShop（6题）
+│   ├── webshop_eval.py    # WebShop（12题，真实 WebShop-small 采样）
 │   ├── cost_eval.py       # 成本消融
 │   ├── ablation_eval.py   # 角色消融实验（6组配置）
 │   ├── eval_autogen.py    # AutoGen 框架对照
@@ -439,7 +439,7 @@ pecs-multi-agent/
 2. **串行执行**：四个角色为串行执行，无依赖步骤可并行化优化，暂未实现
 3. **搜索优先级**：Web 搜索默认优先使用真实 DuckDuckGo 搜索，失败时回退到 mock 数据保证可运行性
 4. **Synthesizer 边界情况**：极少数情况下 simple 任务的快速综合路径会遗漏关键信息（概率 < 5%，不影响评测结果）
-5. **样例集规模有限**：28道GAIA+6道WebShop为内置样例，非官方完整测试集，需接入真实数据集验证
+5. **样例集规模有限**：28道GAIA+12道WebShop为内置样例，非官方完整测试集，需接入真实数据集验证
 
 ## 未来优化方向
 

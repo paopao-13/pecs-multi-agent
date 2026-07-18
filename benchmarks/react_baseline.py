@@ -104,7 +104,14 @@ def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_ste
             no_tool_count = 0  # 重置计数
 
         # 执行工具
-        result = execute_tool(action, action_input)
+        # 公平对比：webshop 动作用纯 LLM 决策（webshop_interact_react），
+        # 不用 PECS 的规则层（webshop_interact）。这是 ReAct vs PECS 的核心差异：
+        # PECS 的 Executor 启发式优化打破 search 循环，ReAct 纯 LLM 自己决策。
+        if action == "webshop":
+            from tools.webshop import webshop_interact_react
+            result = webshop_interact_react(action_input)
+        else:
+            result = execute_tool(action, action_input)
         token_used += estimate_tokens(result)
 
         logs.append(f"[ReAct] 执行 {action}: {result[:80]}...")

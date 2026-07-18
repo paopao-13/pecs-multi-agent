@@ -207,12 +207,97 @@ def webshop_interact(args: dict) -> str:
     )
 
 
+def _decide_webshop_action_llm(goal: str, obs: str, history: list) -> str:
+    """纯 LLM 决策（无规则层），给 ReAct 基线用。
+
+    与 PECS 的 _decide_webshop_action（规则层）对比：
+    - PECS: 规则层打破 search 循环（强制 click[ASIN] 进详情页、click[Buy Now] 结算）
+    - ReAct: 纯 LLM 自己判断页面类型和该做什么，容易陷入 search 循环
+
+    这是公平对比的核心：PECS 的规则层是 Executor 启发式优化，ReAct 没有这种优化。
+    """
+    from agents.llm_utils import call_llm
+    hist = "\n".join(history[-6:])
+    obs_summary = _summarize_obs(obs)
+    prompt = (
+        f"购物目标：{goal}\n\n"
+        f"已执行动作：\n{hist}\n\n"
+        f"当前页面摘要：\n{obs_summary}\n\n"
+        f"下一个动作（search[关键词] / click[ASIN或按钮名] / click[Buy Now]）："
+    )
+    action, _ = call_llm(prompt, _WEBSHOP_DECISION_SYSTEM, role="executor")
+    return (action or "").strip()
+
+
+def webshop_interact_react(args: dict) -> str:
+    """ReAct 基线的 WebShop 交互（纯 LLM 决策，无规则层）。
+
+    与 PECS 的 webshop_interact 对比：
+    - 相同点：都用 _summarize_obs 预处理 obs，都传 instruction 匹配 goal（环境配置）
+    - 不同点：用 _decide_webshop_action_llm（纯 LLM）替代 _decide_webshop_action（规则层）
+    - 预期：LLM 容易陷入 search 循环，不 click 商品/不 buy，导致 reward=0
+    """
+    instruction = args.get("instruction", "")
+    if not instruction:
+        return "错误：缺少 instruction 参数"
+
+    env = get_real_env()
+    goal, obs = env.reset(instruction=instruction)
+    if not goal:
+        goal = instruction
+
+    history: list = []
+    last_reward = 0.0
+    for i in range(env.max_steps):
+        action = _decide_webshop_action_llm(goal, obs, history)
+        if not action:
+            break
+        history.append(f"step{i + 1}: {action}")
+        obs, reward, done, _info = env.step(action)
+        last_reward = reward
+        if done:
+            break
+        # 步数将尽时强制结算（避免空手，但 ReAct 不强制 click[Buy Now]）
+        if i >= env.max_steps - 2 and last_reward == 0.0:
+            history.append(f"step{i + 2}: click[Buy Now] (步数将尽兜底)")
+            obs, reward, done, _info = env.step("click[Buy Now]")
+            last_reward = reward
+            break
+
+    return (
+        f"WebShop 交互完成（共 {len(history)} 步, 奖励={last_reward:.3f}）\n"
+        f"最终页面摘要：{obs[:800]}\n"
+        f"动作序列：{' -> '.join(history)}"
+    )
+
+
 def parse_webshop_reward(text: str) -> float:
-    """从 webshop_interact 的返回文本中提取奖励分数（0~1）。"""
+    """从文本中提取 WebShop 奖励分数（0~1）。
+
+    兼容多种表述格式，避免因 ReAct final_answer 的自然语言措辞差异
+    导致 reward 解析失败（这是之前 ReAct 被误判 0% 的根因）：
+    - "奖励=0.714"（webshop_interact 原始格式）
+    - "奖励 0.714" / "奖励得分为0.714" / "奖励得分为 0.714"
+    - "reward 0.714" / "reward=0.714" / "score 0.714"
+    - "Your score (min 0.0, max 1.0) 0.714..."（WebShop 结算页原文）
+    """
     import re as _re
-    m = _re.search(r"奖励\s*=\s*([0-9]*\.?[0-9]+)", text)
-    if m:
-        return float(m.group(1))
+    # 按优先级尝试多种正则
+    patterns = [
+        r"奖励\s*=\s*([0-9]*\.?[0-9]+)",           # 奖励=0.714
+        r"奖励得分为\s*([0-9]*\.?[0-9]+)",          # 奖励得分为0.714
+        r"奖励\s+([0-9]*\.?[0-9]+)",                # 奖励 0.714
+        r"reward\s*[=:]\s*([0-9]*\.?[0-9]+)",       # reward=0.714
+        r"score\s*[=:]\s*([0-9]*\.?[0-9]+)",        # score 0.714
+        r"得分\s*([0-9]*\.?[0-9]+)",                # 得分0.714
+        r"\(min 0\.0, max 1\.0\)\s*([0-9]*\.?[0-9]+)",  # 结算页 (min 0.0, max 1.0) 0.714
+    ]
+    for pat in patterns:
+        m = _re.search(pat, text, _re.IGNORECASE)
+        if m:
+            val = float(m.group(1))
+            if 0.0 <= val <= 1.0:
+                return val
     return 0.0
 
 

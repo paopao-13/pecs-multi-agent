@@ -172,7 +172,7 @@ GAIA_SAMPLES=28 python benchmarks/report.py
 
 ### 3.2 WebShop 评测
 
-WebShop 购物任务基准测试，内置 6 道模拟购物任务（使用内置 mock 商品库）。
+WebShop 购物任务基准测试，从 WebShop-small 数据集（6910 个真实 goals）随机采样 12 道服装类 instruction，在真实 AgentBench 文本环境上评测（rank_bm25 搜索后端 + HTTP 桥 + text_rich 模式）。
 
 ```bash
 # 运行完整 WebShop 评测（多智能体）
@@ -203,7 +203,7 @@ python -c "from benchmarks.webshop_eval import evaluate_react_webshop; evaluate_
 运行 GAIA + WebShop + ReAct 基线 + 成本消融的完整聚合报告：
 
 ```bash
-# 默认参数（GAIA 全部 28 题，WebShop 6 题）
+# 默认参数（GAIA 全部 28 题，WebShop 12 题）
 python benchmarks/report.py
 
 # 自定义样本数
@@ -455,10 +455,10 @@ DeepSeek-V3（`deepseek-chat`）API 定价（参考 `config.py` 注释）：
 |----------|:------:|:-----------------:|:-----------------:|:------------:|
 | GAIA 多智能体 | 28 | 4-8 | 1,500-3,500 | 42K-98K |
 | GAIA ReAct 基线 | 28 | 3-5 | 1,000-2,500 | 28K-70K |
-| WebShop 多智能体 | 6 | 3-6 | 1,200-3,000 | 7K-18K |
-| WebShop ReAct 基线 | 6 | 2-4 | 800-2,000 | 5K-12K |
+| WebShop 多智能体 | 12 | 3-6 | 1,200-3,500 | 14K-42K |
+| WebShop ReAct 基线 | 12 | 2-5 | 2,000-6,000 | 24K-72K |
 | 成本消融 (3题x2轮) | 6 | 4-8 | 1,500-3,500 | 9K-21K |
-| **合计** | **74** | - | - | **91K-219K** |
+| **合计** | **80** | - | - | **103K-262K** |
 
 ### 6.3 费用估算
 

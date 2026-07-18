@@ -13,43 +13,52 @@ from typing import Any, Dict, List, Optional
 
 from benchmarks.gaia_eval import save_results
 from config import DEFAULT_TOKEN_BUDGET, LLM_API_KEY
+from tools.webshop import parse_webshop_reward
+
+
+def _extract_webshop_reward(state: dict, predicted: str) -> float:
+    """公平提取 WebShop reward：从工具原始返回和 final_answer 多个来源取最大值。
+
+    之前只从 final_answer 解析，但 ReAct 的 LLM 总结可能省略 reward 值（如
+    "已找到符合要求的商品"不含数字），导致 ReAct 被误判 0%。本函数从 state 的
+    steps_log / logs / final_answer 所有文本里提取 reward，取最大值（代表最佳表现）。
+    """
+    best_reward = 0.0
+    # 1. 从 steps_log 的 result 字段提取（ReAct 和 PECS 都有）
+    for step in state.get("steps_log", []):
+        if isinstance(step, dict):
+            result = step.get("result", "") or step.get("observation", "")
+            if result:
+                r = parse_webshop_reward(str(result))
+                best_reward = max(best_reward, r)
+    # 2. 从 logs 提取（PECS 的 Executor 日志含 "奖励=X.XXX"）
+    for log in state.get("logs", []):
+        r = parse_webshop_reward(str(log))
+        best_reward = max(best_reward, r)
+    # 3. fallback: 从 final_answer 提取
+    r = parse_webshop_reward(predicted)
+    best_reward = max(best_reward, r)
+    return best_reward
 from graph.builder import run_task
 from graph.token_budget import estimate_tokens
 from tools.webshop import DEFAULT_CATALOG, use_real_env, parse_webshop_reward
 
 
 WEBSHOP_SAMPLES = [
-    # WebShop-small 数据集全是服装类商品，instruction 用服装类才能匹配到真实 goal
-    {
-        "task_id": "webshop_001",
-        "instruction": "Find me men's t-shirts with long sleeve, cotton, under $50.",
-        "target_id": "ws_tshirt_001",
-    },
-    {
-        "task_id": "webshop_002",
-        "instruction": "Find me women's tops with short sleeve, polyester, under $40.",
-        "target_id": "ws_tops_001",
-    },
-    {
-        "task_id": "webshop_003",
-        "instruction": "Find me men's shirts with classic fit, cotton, under $50.",
-        "target_id": "ws_shirt_001",
-    },
-    {
-        "task_id": "webshop_004",
-        "instruction": "Find me women's jumpsuits with polyester spandex, under $50.",
-        "target_id": "ws_jumpsuit_001",
-    },
-    {
-        "task_id": "webshop_005",
-        "instruction": "Find me men's t-shirts with short sleeve, under $30.",
-        "target_id": "ws_tshirt_002",
-    },
-    {
-        "task_id": "webshop_006",
-        "instruction": "Find me women's tops with long sleeve, polyester, under $40.",
-        "target_id": "ws_tops_002",
-    },
+    # 从 WebShop-small 数据集 6910 个 goals 中随机采样 12 个真实 instruction_text
+    # （random.seed(42), 服装类, 确保能匹配到真实 goal 和商品）
+    {"task_id": "webshop_001", "instruction": "Find me machine wash women's swimsuits & cover ups with drawstring closure, elastic waistband, tummy control with color: black, and size: medium, and price lower than 30.00 dollars", "target_id": "ws_001"},
+    {"task_id": "webshop_002", "instruction": "Find me men's t-shirts & tanks with short sleeve, fashion design, long sleeve, button closure with color: e-white, and size: 5x-large, and price lower than 50.00 dollars", "target_id": "ws_002"},
+    {"task_id": "webshop_003", "instruction": "Find me quick drying, moisture wicking women's activewear with long sleeve with color: b-peach-thumbhole, and size: small, and price lower than 40.00 dollars", "target_id": "ws_003"},
+    {"task_id": "webshop_004", "instruction": "Find me men's loafers & slip-ons with rubber outsole, rubber sole with color: blue-a, and size: 10, and price lower than 40.00 dollars", "target_id": "ws_004"},
+    {"task_id": "webshop_005", "instruction": "Find me machine wash men's dress shirts with cotton spandex, classic fit, short sleeve with color: monaco blue, and size: 2x, and price lower than 60.00 dollars", "target_id": "ws_005"},
+    {"task_id": "webshop_006", "instruction": "Find me men's shorts with drawstring closure, elastic waist for gym workout with color: #1 black green, and size: 38, and price lower than 50.00 dollars", "target_id": "ws_006"},
+    {"task_id": "webshop_007", "instruction": "Find me butt lifting, light weight women's shorts with high waist, tummy control with color: black, and size: xx-large, and price lower than 50.00 dollars", "target_id": "ws_007"},
+    {"task_id": "webshop_008", "instruction": "Find me machine wash men's tuxedo shirts with polyester heathers, heathers cotton, cotton heather, needle sleeve, classic fit with color: heather blue, and fit type: men, and size: large, and price lower than 30.00 dollars", "target_id": "ws_008"},
+    {"task_id": "webshop_009", "instruction": "Find me men's sleep & lounge with long sleeve, elastic waistband for daily wear with color: multi 4, and size: small, and price lower than 80.00 dollars", "target_id": "ws_009"},
+    {"task_id": "webshop_010", "instruction": "Find me slim fit, machine wash men's casual button-down shirts with button closure, long sleeve with color: aqua blue, and size: x-large, and price lower than 40.00 dollars", "target_id": "ws_010"},
+    {"task_id": "webshop_011", "instruction": "Find me machine wash, wash cold women's fashion hoodies & sweatshirts for dry clean, tumble dry with color: white, and size: 4x-large, and price lower than 70.00 dollars", "target_id": "ws_011"},
+    {"task_id": "webshop_012", "instruction": "Find me hand wash women's sweaters with long sleeve, stretch fabric, polyester spandex for teen girls, daily wear with color: xnj-tshirt338-white, and size: x-large, and price lower than 40.00 dollars", "target_id": "ws_012"},
 ]
 
 
@@ -117,7 +126,10 @@ def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str,
 
         predicted = state.get("final_answer", "")
         if mode == "real":
-            success = parse_webshop_reward(predicted) >= REAL_REWARD_THRESHOLD
+            # 公平提取 reward：不能只靠 final_answer（ReAct 的 LLM 总结可能省略 reward 值）
+            # 优先从工具原始返回（steps_log/results）提取，fallback 到 final_answer 解析
+            reward = _extract_webshop_reward(state, predicted)
+            success = reward >= REAL_REWARD_THRESHOLD
         else:
             success = sample["target_id"] in predicted
         success_count += int(success)
