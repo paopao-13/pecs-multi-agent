@@ -271,6 +271,78 @@ def webshop_interact_react(args: dict) -> str:
     )
 
 
+def _decide_webshop_action_light(goal: str, obs: str, history: list) -> str:
+    """轻量规则层（给 ReAct 公平对比用）：有 Buy 就买，但不强制 click[ASIN]。
+
+    介于 PECS 完整规则层和 ReAct 纯 LLM 之间，用于消融实验：
+    - 相同点（购物常识）：详情页有 Buy 按钮 → click[Buy Now]（任何 Agent 都该知道）
+    - 不同点（PECS 优势）：不强制 click[ASIN] 进详情页，LLM 自己决定点哪个商品
+    - 预期：ReAct-light 仍低于 PECS，证明 PECS 优势来自"打破 search 循环"而非"有规则层"本身
+    """
+    from agents.llm_utils import call_llm
+
+    # 规则1（购物常识）：详情页有 Buy 按钮 → 必须买（和 PECS 相同的基本购物逻辑）
+    # 这一层规则不涉及"打破 search 循环"，只是"会买东西"的基本能力
+    has_buy_button = "Buy Now" in obs or "buy-now" in obs.lower()
+    if has_buy_button:
+        return "click[Buy Now]"
+
+    # LLM 层：自由决策 search[关键词] 或 click[ASIN]（不强制进详情页，这是与 PECS 的关键差异）
+    # PECS 的规则2会强制"搜到结果即 click[ASIN]"，这里不做这个强制
+    hist = "\n".join(history[-6:])
+    obs_summary = _summarize_obs(obs)
+    prompt = (
+        f"购物目标：{goal}\n\n"
+        f"已执行动作：\n{hist}\n\n"
+        f"当前页面摘要：\n{obs_summary}\n\n"
+        f"下一个动作（search[关键词] / click[ASIN或按钮名] / click[Buy Now]）："
+    )
+    action, _ = call_llm(prompt, _WEBSHOP_DECISION_SYSTEM, role="executor")
+    return (action or "").strip()
+
+
+def webshop_interact_react_light(args: dict) -> str:
+    """ReAct 基线的 WebShop 交互（轻量规则层版）。
+
+    三组对比的中间档：
+    - vs webshop_interact_react（纯 LLM）：多了"Buy按钮→click[Buy Now]"购物常识
+    - vs PECS webshop_interact（完整规则层）：少了"搜到结果即 click[ASIN]"的循环打破规则
+    - 预期：成功率介于 ReAct(0%) 和 PECS(25%) 之间，证明 PECS 核心价值是规则2而非规则1
+    """
+    instruction = args.get("instruction", "")
+    if not instruction:
+        return "错误：缺少 instruction 参数"
+
+    env = get_real_env()
+    goal, obs = env.reset(instruction=instruction)
+    if not goal:
+        goal = instruction
+
+    history: list = []
+    last_reward = 0.0
+    for i in range(env.max_steps):
+        action = _decide_webshop_action_light(goal, obs, history)
+        if not action:
+            break
+        history.append(f"step{i + 1}: {action}")
+        obs, reward, done, _info = env.step(action)
+        last_reward = reward
+        if done:
+            break
+        # 步数将尽时强制结算（和 webshop_interact_react 相同的兜底，三组都有）
+        if i >= env.max_steps - 2 and last_reward == 0.0:
+            history.append(f"step{i + 2}: click[Buy Now] (步数将尽兜底)")
+            obs, reward, done, _info = env.step("click[Buy Now]")
+            last_reward = reward
+            break
+
+    return (
+        f"WebShop 交互完成（共 {len(history)} 步, 奖励={last_reward:.3f}）\n"
+        f"最终页面摘要：{obs[:800]}\n"
+        f"动作序列：{' -> '.join(history)}"
+    )
+
+
 def parse_webshop_reward(text: str) -> float:
     """从文本中提取 WebShop 奖励分数（0~1）。
 

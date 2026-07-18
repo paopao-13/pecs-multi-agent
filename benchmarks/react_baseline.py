@@ -50,7 +50,7 @@ Final Answer: 最终答案
 """
 
 
-def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_steps: int = 5) -> dict:
+def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_steps: int = 5, webshop_fn=None) -> dict:
     """
     运行 ReAct 单 Agent 任务
 
@@ -58,6 +58,10 @@ def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_ste
     - 单 Agent 一个人做所有事（规划+执行+检查+综合）
     - 没有 Token 预算感知调度
     - 没有专门的评审角色
+
+    webshop_fn: webshop 工具的决策函数，用于消融实验对比不同规则层强度：
+    - None（默认）→ webshop_interact_react（纯 LLM 决策，无规则层）
+    - webshop_interact_react_light → 轻量规则层（有 Buy 就买，不强制 click[ASIN]）
 
     返回与多智能体框架相同格式的状态，方便对比
     """
@@ -104,12 +108,16 @@ def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_ste
             no_tool_count = 0  # 重置计数
 
         # 执行工具
-        # 公平对比：webshop 动作用纯 LLM 决策（webshop_interact_react），
-        # 不用 PECS 的规则层（webshop_interact）。这是 ReAct vs PECS 的核心差异：
-        # PECS 的 Executor 启发式优化打破 search 循环，ReAct 纯 LLM 自己决策。
+        # 公平对比：webshop 动作的决策函数可配置，用于消融实验：
+        # - webshop_fn=None（默认）→ webshop_interact_react（纯 LLM 决策，无规则层）
+        # - webshop_fn=webshop_interact_react_light → 轻量规则层（有 Buy 就买）
+        # PECS 的 Executor 用 webshop_interact（完整规则层，打破 search 循环）
         if action == "webshop":
-            from tools.webshop import webshop_interact_react
-            result = webshop_interact_react(action_input)
+            if webshop_fn is not None:
+                result = webshop_fn(action_input)
+            else:
+                from tools.webshop import webshop_interact_react
+                result = webshop_interact_react(action_input)
         else:
             result = execute_tool(action, action_input)
         token_used += estimate_tokens(result)

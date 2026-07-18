@@ -83,6 +83,23 @@ def run_react_webshop_task(instruction: str, token_budget: int = DEFAULT_TOKEN_B
     return run_react_task(query, token_budget, max_steps=5)
 
 
+def run_react_webshop_task_light(instruction: str, token_budget: int = DEFAULT_TOKEN_BUDGET) -> dict:
+    """
+    ReAct 单 Agent 基线（轻量规则层版）—— 消融实验中间档。
+
+    与 run_react_webshop_task（纯 LLM）的区别：
+    - webshop 工具用 webshop_interact_react_light（有 Buy 就买的购物常识）
+    - 不用 PECS 的完整规则层（不强制 click[ASIN] 打破 search 循环）
+
+    三组对比：PECS 完整规则层 / ReAct-light 轻量规则层 / ReAct 纯 LLM
+    证明 PECS 优势来自"打破 search 循环"的规则2，而非"有规则层"本身。
+    """
+    from benchmarks.react_baseline import run_react_task
+    from tools.webshop import webshop_interact_react_light
+    query = f"WebShop任务：{instruction}"
+    return run_react_task(query, token_budget, max_steps=5, webshop_fn=webshop_interact_react_light)
+
+
 def evaluate_webshop(
     num_samples: Optional[int] = None,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
@@ -108,6 +125,16 @@ def evaluate_react_webshop(
     return _evaluate(samples, token_budget, agent_type="react_baseline", mode=mode)
 
 
+def evaluate_react_webshop_light(
+    num_samples: Optional[int] = None,
+    token_budget: int = DEFAULT_TOKEN_BUDGET,
+    mode: Optional[str] = None,
+) -> dict:
+    """Evaluate ReAct with light rule layer (Buy-button rule only, no search-loop breaking)."""
+    samples = WEBSHOP_SAMPLES[:num_samples] if num_samples else WEBSHOP_SAMPLES
+    return _evaluate(samples, token_budget, agent_type="react_light", mode=mode)
+
+
 def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str, mode: Optional[str] = None) -> dict:
     details = []
     success_count = 0
@@ -121,6 +148,8 @@ def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str,
     for sample in samples:
         if agent_type == "react_baseline":
             state = run_react_webshop_task(sample["instruction"], token_budget)
+        elif agent_type == "react_light":
+            state = run_react_webshop_task_light(sample["instruction"], token_budget)
         else:
             state = run_webshop_task(sample["instruction"], token_budget)
 
@@ -159,6 +188,11 @@ def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str,
         "details": details,
     }
 
-    filename = "webshop_multi_agent.json" if agent_type == "multi_agent" else "webshop_react_baseline.json"
+    _filenames = {
+        "multi_agent": "webshop_multi_agent.json",
+        "react_baseline": "webshop_react_baseline.json",
+        "react_light": "webshop_react_light.json",
+    }
+    filename = _filenames.get(agent_type, "webshop_react_baseline.json")
     save_results(result, filename)
     return result

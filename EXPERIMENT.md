@@ -192,11 +192,16 @@ ReAct（Reasoning + Acting）是单 Agent 基线，使用同一 DeepSeek 模型 
 # GAIA 上的 ReAct 基线
 python -c "from benchmarks.react_baseline import evaluate_react_gaia; evaluate_react_gaia()"
 
-# WebShop 上的 ReAct 基线
+# WebShop 上的 ReAct 基线（纯 LLM 决策，无规则层）
 python -c "from benchmarks.webshop_eval import evaluate_react_webshop; evaluate_react_webshop()"
+
+# WebShop 上的 ReAct-light（轻量规则层消融：仅 Buy 规则，不打破 search 循环）
+python -c "from benchmarks.webshop_eval import evaluate_react_webshop_light; evaluate_react_webshop_light()"
 ```
 
-结果分别保存至 `results/gaia_react_baseline.json` 和 `results/webshop_react_baseline.json`。
+结果分别保存至 `results/gaia_react_baseline.json`、`results/webshop_react_baseline.json` 和 `results/webshop_react_light.json`。
+
+> 三组 WebShop 对比（PECS 完整规则层 / ReAct-light 轻量规则层 / ReAct 纯 LLM）用于消融实验，证明 PECS 的 +25pp 优势来自"搜到结果即 click[ASIN] 打破 search 循环"这一具体启发式，而非"有规则层"本身。一键运行三组对比：`python run_webshop.py`（完整）或 `python run_webshop.py --only light`（仅跑 ReAct-light，复用已有数据）。
 
 ### 3.4 一键运行完整对比报告
 
@@ -373,7 +378,8 @@ print(f'ReAct:    {react[\"success_rate\"]*100:.1f}%, {react[\"avg_tokens_per_ta
 | `gaia_multi_agent.json` | 多智能体在 GAIA L1 上的评测结果：准确率、每题详细日志、Token 明细 | `evaluate_gaia()` |
 | `gaia_react_baseline.json` | ReAct 基线在 GAIA L1 上的评测结果 | `evaluate_react_gaia()` |
 | `webshop_multi_agent.json` | 多智能体在 WebShop 上的评测结果：成功率、商品选择明细 | `evaluate_webshop()` |
-| `webshop_react_baseline.json` | ReAct 基线在 WebShop 上的评测结果 | `evaluate_react_webshop()` |
+| `webshop_react_baseline.json` | ReAct 基线（纯 LLM）在 WebShop 上的评测结果 | `evaluate_react_webshop()` |
+| `webshop_react_light.json` | ReAct-light（轻量规则层消融）在 WebShop 上的评测结果 | `evaluate_react_webshop_light()` |
 | `cost_ablation.json` | Token 预算消融实验：紧预算 vs 宽预算的 Token 对比和节省比例 | `evaluate_cost_ablation()` |
 | `target_report.json` | **聚合报告**：汇总上述所有结果，对比目标值达标情况 | `run_sample_report()` 或 `python benchmarks/report.py` |
 | `comparison_validation.json` | 多智能体 vs ReAct 对比验证数据 | 对比测试模块 |
@@ -457,8 +463,9 @@ DeepSeek-V3（`deepseek-chat`）API 定价（参考 `config.py` 注释）：
 | GAIA ReAct 基线 | 28 | 3-5 | 1,000-2,500 | 28K-70K |
 | WebShop 多智能体 | 12 | 3-6 | 1,200-3,500 | 14K-42K |
 | WebShop ReAct 基线 | 12 | 2-5 | 2,000-6,000 | 24K-72K |
+| WebShop ReAct-light 消融 | 12 | 2-5 | 2,000-6,500 | 24K-78K |
 | 成本消融 (3题x2轮) | 6 | 4-8 | 1,500-3,500 | 9K-21K |
-| **合计** | **80** | - | - | **103K-262K** |
+| **合计** | **92** | - | - | **127K-340K** |
 
 ### 6.3 费用估算
 

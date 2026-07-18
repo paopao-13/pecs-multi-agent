@@ -110,7 +110,9 @@ sequenceDiagram
 
 > **三大局限诚实声明（招聘方追问前必读）**：
 > 1. **GAIA 样本偏计算**：10 题中 5 道大数计算（启发式 0-token 秒杀）+ 5 道知识检索，非官方 165 题分布，96% 不可外推到官方榜单。推理题子集（tokens>10）准确率 92.3%（12/13）为框架真实能力体现，计算题子集 100% 是"免费得分"。
-> 2. **WebShop 真实环境达标（25.0% vs 0%, +25.0pp）**：在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥 + text_rich 模式,非本地 mock），从 WebShop-small 数据集 6910 个真实 goals 中随机采样 12 道服装类 instruction。PECS 3/12 成功（reward≥0.5）vs ReAct 0/12。公平对比设计：PECS 的 Executor 启发式规则层（搜到结果即 click[ASIN] 进详情页、click[Buy Now] 触发结算）vs ReAct 纯 LLM 决策（无规则层兜底）。关键修复：① 直接实例化 WebAgentTextEnv 绕过 gym wrapper，让 reset(task_index) 按 instruction 语义匹配真实 goal；② observation_mode=text_rich 输出 [button] 标记和 ASIN；③ Critic 用 reward 信号替代 SELECTED 判定。Token 方面 PECS 2576 vs ReAct 5958（降本 56.8%，ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转+幻觉答案）。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
+> 2. **WebShop 真实环境达标（25.0% vs 0%, +25.0pp）**：在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥 + text_rich 模式,非本地 mock），从 WebShop-small 数据集 6910 个真实 goals 中随机采样 12 道服装类 instruction。PECS 3/12 成功（reward≥0.5）vs ReAct 0/12。公平对比设计：PECS 的 Executor 启发式规则层（搜到结果即 click[ASIN] 进详情页、click[Buy Now] 触发结算）vs ReAct 纯 LLM 决策（无规则层兜底）。关键修复：① 直接实例化 WebAgentTextEnv 绕过 gym wrapper，让 reset(task_index) 按 instruction 语义匹配真实 goal；② observation_mode=text_rich 输出 [button] 标记和 ASIN；③ Critic 用 reward 信号替代 SELECTED 判定。Token 方面 PECS 2576 vs ReAct 5958（降本 56.8%，ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转+幻觉答案）。
+>
+>    **消融实验（证明优势来自"打破 search 循环"而非"有规则层"本身）**：新增 ReAct-light 中间档（只有"Buy按钮→click[Buy Now]"购物常识，不强制 click[ASIN] 进详情页）。三组对比：PECS 完整规则层 25.0% / ReAct-light 轻量规则层 0.0% / ReAct 纯 LLM 0.0%。ReAct-light vs ReAct = +0.0pp（轻量规则增量贡献为零），PECS vs ReAct-light = +25.0pp。结论：Buy 规则单独存在无效（LLM 不点商品进详情页，永远到不了有 Buy 按钮的页面，15 步全在 search 页循环 reward=0）；PECS 的 +25pp 完全来自"搜到结果即 click[ASIN] 打破 search 循环"这一具体 Executor 启发式，而非"加规则层"这个动作本身。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
 > 3. **Token 38.8% 含对比假象**：端到端 −38.78% 是 vs 失控 ReAct 的对比（ReAct 大数计算失败导致重算消耗高）；纯预算调度机制本身仅 −4.5%（见下方「Token 成本分析」消融）。报告须区分"机制贡献 −4.5%"与"端到端 −38.78%"两个口径，避免误导。WebShop 真实环境 Token 降本 56.8%（PECS 2576 vs ReAct 5958），ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转，Token 雪崩。
 
 > 评测样本：GAIA 10题（5简单知识检索 + 5大数计算），WebShop 12题（WebShop-small 数据集真实采样,rank_bm25 搜索后端,真实 AgentBench 文本环境）。
@@ -144,6 +146,16 @@ sequenceDiagram
 | 知识检索类任务 | +115% | PECS(2192 tok) vs ReAct(1019 tok) | 多智能体四角色各调 LLM，Token 更高但 Critic 提供质量保障 |
 
 > 端到端 38.8% 降本主要由启发式路由贡献（计算类任务零 LLM 调用）。纯预算调度模块单独贡献 4.5%，在更复杂的多步搜索任务上预期更高。知识检索类任务多智能体 Token 更高，因为 Planner+Executor+Critic+Synthesizer 四角色各需 LLM 调用，但 Critic 的质量评审提供了 ReAct 没有的错误拦截能力。
+
+**WebShop 规则层消融**（真实环境，12 题，证明 PECS 优势来源）：
+
+| 组别 | 规则层配置 | 成功率 | Token/题 | 失败模式 |
+|------|-----------|:------:|:--------:|----------|
+| PECS 完整 | Buy→click[Buy Now] + 搜到结果→click[ASIN] | 25.0% (3/12) | 2,576 | 规则打破 search 循环，进详情页购买 |
+| ReAct-light 轻量 | 仅 Buy→click[Buy Now] | 0.0% (0/12) | 6,140 | LLM 不点商品，15 步全在 search 页循环 |
+| ReAct 纯 LLM | 无规则层 | 0.0% (0/12) | 5,958 | 同上，search 循环 + 幻觉 ASIN |
+
+> 消融结论：ReAct-light vs ReAct = +0.0pp（Buy 规则增量贡献为零），PECS vs ReAct-light = +25.0pp。Buy 规则单独存在无效——LLM 不主动点商品进详情页，永远到不了有 Buy 按钮的页面；PECS 的 +25pp 完全来自"搜到结果即 click[ASIN] 打破 search 循环"这一具体 Executor 启发式。这证明框架优势不是"加规则层"这个动作，而是 specifically 针对 search 循环痛点的启发式设计。
 
 ![metrics](assets/metrics_comparison.svg)
 
