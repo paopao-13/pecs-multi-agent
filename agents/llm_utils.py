@@ -12,6 +12,7 @@ LLM 调用封装
   - Synthesizer 综合 → temperature=0.5，表达需要灵活性
 """
 import json
+import os
 from typing import Optional
 from langchain_openai import ChatOpenAI
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS
@@ -80,6 +81,18 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
     max_retries = 3
     last_error = ""
 
+    # 限流保护：保证两次 API 调用之间至少间隔 _GAP 秒，避免触发 RPM/模型容量限制。
+    # 通过环境变量 LLM_MIN_GAP 可调整（默认 3s，足以规避绝大多数基础 RPM 限制，
+    # 又不至于像之前的 20s 那样在换用不限流 API 时严重拖慢评测）。
+    # 设计为「仅在间隔不足时才 sleep」，间隔已满足则零等待。
+    _GAP = float(os.environ.get("LLM_MIN_GAP", "3.0"))
+    if _GAP > 0:
+        _now = _time.time()
+        _since = _now - getattr(call_llm, "_last_ts", 0)
+        if _since < _GAP:
+            _time.sleep(_GAP - _since)
+        call_llm._last_ts = _time.time()
+
     for attempt in range(max_retries):
         try:
             llm = get_llm(role)
@@ -114,7 +127,7 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
                 "timeout", "connection", "temporarily", "unavailable"
             ])
             if is_rate_limit and attempt < max_retries - 1:
-                wait = 15 * (2 ** attempt)  # 15s, 30s, 60s
+                wait = 8 * (2 ** attempt)  # 8s, 16s, 32s（比原 15/30/60 更温和）
                 _time.sleep(wait)
                 continue
             # 非限流错误或重试耗尽，直接返回失败

@@ -17,6 +17,7 @@ LangGraph 状态图构建器
                     └─ 否 → END（输出最终答案）
 """
 from langgraph.graph import StateGraph, END
+from langgraph.checkpoint.sqlite import SqliteSaver
 from graph.state import AgentState
 from graph.token_budget import get_budget_policy, check_role_budget
 from agents.planner import planner_node
@@ -55,11 +56,18 @@ def route_after_executor(state: dict) -> str:
         return "synthesizer"
 
     if complexity == "simple":
-        # 简单任务跳过 Critic
+        # 简单任务：步骤成功则跳过 Critic 直接综合，失败则强制评审/重试以防冻结错误答案
+        latest_ok = results[-1].get("success", False) if results else False
         if current_idx >= len(plan):
-            return "synthesizer"
+            if latest_ok:
+                return "synthesizer"
+            # 最后一步执行失败 → 仍交给 Critic 评估（避免报错文本被当答案冻结）
+            return "critic"
         else:
-            return "executor"  # 继续执行下一步（不经过 Critic）
+            if latest_ok:
+                return "executor"  # 成功则继续执行下一步（不经过 Critic）
+            # 当前步骤失败 → 走 Critic 评审，由评审决定是否重试
+            return "critic"
 
     if policy["skip_low_risk_critic"] and latest_result.get("success", False):
         return "executor" if current_idx < len(plan) else "synthesizer"
@@ -94,6 +102,12 @@ def route_after_critic(state: dict) -> str:
         if current_idx < len(plan):
             return "executor"  # 跳过评审，直接执行下一步
         return "synthesizer"
+
+    # 安全闸：最新步骤执行失败且尚未耗尽迭代 → 优先重试，避免冻结错误答案
+    if results:
+        _latest = results[-1]
+        if not _latest.get("success", True) and state.get("iteration", 0) < MAX_ITERATIONS:
+            return "executor_retry" if _latest.get("retry_count", 0) < 3 else "executor"
 
     # 预算检查
     if get_budget_policy(state)["force_synthesize"]:
@@ -160,11 +174,14 @@ def route_after_synthesizer(state: dict) -> str:
     return END
 
 
-def build_graph(token_budget: int = DEFAULT_TOKEN_BUDGET):
+def build_graph(token_budget: int = DEFAULT_TOKEN_BUDGET, checkpointer=None):
     """
     构建 LangGraph 状态图
 
-    返回编译后的图实例，可以通过 graph.invoke(initial_state) 执行
+    返回编译后的图实例，可以通过 graph.invoke(initial_state) 执行。
+    若传入 checkpointer（如 SqliteSaver），则图支持断点续跑：
+    进程被杀后，已完成的节点状态落在持久化存储中，下次用同一
+    thread_id 重新 invoke 即可从断点继续，无需重跑。
     """
     # 创建状态图，指定状态类型
     graph = StateGraph(AgentState)
@@ -197,7 +214,7 @@ def build_graph(token_budget: int = DEFAULT_TOKEN_BUDGET):
     graph.set_entry_point("planner")
 
     # ===== 编译图 =====
-    compiled = graph.compile()
+    compiled = graph.compile(checkpointer=checkpointer)
     return compiled
 
 
@@ -221,7 +238,8 @@ def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, u
     )
 
 
-def run_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristics: bool = True) -> dict:
+def run_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristics: bool = True,
+             thread_id: str = None, checkpoint_db: str = None) -> dict:
     """
     运行一个完整任务
 
@@ -229,17 +247,35 @@ def run_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristic
         query: 用户问题
         token_budget: Token 预算上限
         use_heuristics: 是否启用启发式（成本消融时设为 False）
+        thread_id: 持久化检查点的线程 ID（同一任务多次调用复用同一 ID 即可断点续跑）
+        checkpoint_db: SQLite 检查点文件路径；为 None 时使用内存检查点（不持久化）
 
     返回:
         最终状态（包含 final_answer、token_used、logs 等）
     """
-    # 构建图
-    compiled_graph = build_graph(token_budget)
+    if checkpoint_db:
+        with SqliteSaver.from_conn_string(checkpoint_db) as saver:
+            compiled_graph = build_graph(token_budget, checkpointer=saver)
+            # 创建初始状态
+            initial_state = create_initial_state(query, token_budget, use_heuristics=use_heuristics)
+            # 执行图（进程被杀也不丢进度；下次用同一 thread_id 续跑）
+            config = {"configurable": {"thread_id": thread_id}} if thread_id else None
+            final_state = compiled_graph.invoke(initial_state, config)
+        return final_state
+    else:
+        compiled_graph = build_graph(token_budget)
+        initial_state = create_initial_state(query, token_budget, use_heuristics=use_heuristics)
+        return compiled_graph.invoke(initial_state)
 
-    # 创建初始状态
-    initial_state = create_initial_state(query, token_budget, use_heuristics=use_heuristics)
 
-    # 执行图
-    final_state = compiled_graph.invoke(initial_state)
+def resume_task(thread_id: str, checkpoint_db: str) -> dict:
+    """
+    从已有检查点续跑（不重新传入 query，直接复用断点状态）
 
+    用于：上次 run_task 因进程被杀未跑完，本次接着跑。
+    """
+    with SqliteSaver.from_conn_string(checkpoint_db) as saver:
+        compiled_graph = build_graph(checkpointer=saver)
+        # 续跑时无需初始输入，LangGraph 会从最后一个检查点恢复
+        final_state = compiled_graph.invoke(None, {"configurable": {"thread_id": thread_id}})
     return final_state

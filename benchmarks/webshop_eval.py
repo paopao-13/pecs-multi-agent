@@ -15,7 +15,7 @@ from benchmarks.gaia_eval import save_results
 from config import DEFAULT_TOKEN_BUDGET, LLM_API_KEY
 from graph.builder import run_task
 from graph.token_budget import estimate_tokens
-from tools.webshop import DEFAULT_CATALOG
+from tools.webshop import DEFAULT_CATALOG, use_real_env, parse_webshop_reward
 
 
 WEBSHOP_SAMPLES = [
@@ -76,25 +76,37 @@ def run_react_webshop_task(instruction: str, token_budget: int = DEFAULT_TOKEN_B
 def evaluate_webshop(
     num_samples: Optional[int] = None,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
+    mode: Optional[str] = None,
 ) -> dict:
-    """Evaluate the multi-agent framework on local WebShop-style samples."""
+    """Evaluate the multi-agent framework on WebShop-style samples.
+
+    mode="real" 使用真实 AgentBench 环境的奖励分判定成功；
+    mode="local"（默认）使用本地 mock 的 target_id 子串匹配。
+    不传 mode 时自动根据 WEBSHOP_SERVER_URL 环境变量判断。
+    """
     samples = WEBSHOP_SAMPLES[:num_samples] if num_samples else WEBSHOP_SAMPLES
-    return _evaluate(samples, token_budget, agent_type="multi_agent")
+    return _evaluate(samples, token_budget, agent_type="multi_agent", mode=mode)
 
 
 def evaluate_react_webshop(
     num_samples: Optional[int] = None,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
+    mode: Optional[str] = None,
 ) -> dict:
     """Evaluate the ReAct-style local baseline on WebShop-style samples."""
     samples = WEBSHOP_SAMPLES[:num_samples] if num_samples else WEBSHOP_SAMPLES
-    return _evaluate(samples, token_budget, agent_type="react_baseline")
+    return _evaluate(samples, token_budget, agent_type="react_baseline", mode=mode)
 
 
-def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str) -> dict:
+def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str, mode: Optional[str] = None) -> dict:
     details = []
     success_count = 0
     total_tokens = 0
+
+    # 自动判定评测模式：真实环境 vs 本地 mock
+    mode = mode or ("real" if use_real_env() else "local")
+    # 真实环境下，奖励分 ≥ 该阈值视为"选对"（1.0=完全匹配，可酌情下调）
+    REAL_REWARD_THRESHOLD = 0.5
 
     for sample in samples:
         if agent_type == "react_baseline":
@@ -103,7 +115,10 @@ def _evaluate(samples: List[Dict[str, Any]], token_budget: int, agent_type: str)
             state = run_webshop_task(sample["instruction"], token_budget)
 
         predicted = state.get("final_answer", "")
-        success = sample["target_id"] in predicted
+        if mode == "real":
+            success = parse_webshop_reward(predicted) >= REAL_REWARD_THRESHOLD
+        else:
+            success = sample["target_id"] in predicted
         success_count += int(success)
         tokens = state.get("token_used", 0)
         total_tokens += tokens

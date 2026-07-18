@@ -12,6 +12,15 @@ GAIA 是一个通用 AI 助手基准测试，分 Level 1/2/3 三个难度。
 评估方式：
   - 精确匹配：预测答案 == 标准答案
   - 语义等价：调用 LLM 判断两个答案语义是否相同
+
+⚠️ 评估局限性声明（务必先阅，避免误读分数）：
+  1. 内置 GAIA_L1_SAMPLES 偏「计算/文件解析」类（python / file_parse 工具可解），
+     对「真实世界搜索 + 多步推理」型题覆盖不足，准确率数字会高于官方 GAIA 全量。
+     若要逼近官方指标，须加载 HuggingFace 官方 GAIA 数据集替换内置样本。
+  2. WebShop 子任务当前为 **mock 环境**（内部约束匹配模拟，非真实 WebShop 网站），
+     成功率仅反映「约束解析 + 匹配逻辑」质量，不代表真实电商环境表现。
+     接入真实 WebShop 需替换 tools/webshop.py 为官方 simulator 客户端。
+  3. 评测依赖 API Key；无 Key 时 LLM 路径走 mock 响应，结果不可用于量化结论。
 """
 import json
 import os
@@ -256,6 +265,48 @@ GAIA_L1_SAMPLES = [
         "hint": "7^8=5764801, 7^5=16807, 差=5764801-16807=5747994",
         "complexity": "complex",
     },
+    # === 文件处理样本（GAIA L1 中约15%是文件相关题）===
+    {
+        "task_id": "gaia_l1_029",
+        "question": "请解析 data/sales_data.xlsx 文件，计算所有产品的总利润是多少？",
+        "answer": "292000",
+        "level": 1,
+        "hint": "读取Excel，利润列求和：85000+92000+54000+61000=292000",
+        "complexity": "medium",
+    },
+    {
+        "task_id": "gaia_l1_030",
+        "question": "请解析 data/employees.csv 文件，技术部门的平均薪资是多少？",
+        "answer": "28333.33",
+        "level": 1,
+        "hint": "读取CSV，技术部薪资[25000,28000,32000]平均=28333.33",
+        "complexity": "medium",
+    },
+    {
+        "task_id": "gaia_l1_031",
+        "question": "请解析 data/sales_report.pdf 文件，产品A和产品B的利润总和是多少？",
+        "answer": "530000",
+        "level": 1,
+        "hint": "读取PDF，320000+210000=530000",
+        "complexity": "medium",
+    },
+    # === 网页浏览样本（GAIA L1 中约10%是网页相关题）===
+    {
+        "task_id": "gaia_l1_032",
+        "question": "请浏览 https://en.wikipedia.org/wiki/Tesla,_Inc. 网页，Tesla公司成立于哪一年？",
+        "answer": "2003",
+        "level": 1,
+        "hint": "抓取网页，founded in 2003",
+        "complexity": "medium",
+    },
+    {
+        "task_id": "gaia_l1_033",
+        "question": "请浏览 https://en.wikipedia.org/wiki/Python_(programming_language) 网页，Python首次发布是哪一年？",
+        "answer": "1991",
+        "level": 1,
+        "hint": "抓取网页，first released it in 1991",
+        "complexity": "medium",
+    },
 ]
 
 # 评估结果保存路径
@@ -422,12 +473,15 @@ def evaluate_answer(predicted: str, ground_truth: str) -> bool:
     if gt_nums:
         pred_nums = re.findall(r'\d+\.?\d*', pred_cleaned)
         for gt_num in gt_nums:
-            for pred_num in pred_nums:
-                try:
-                    if float(gt_num) == float(pred_num):
-                        return True
-                except ValueError:
-                    continue
+                for pred_num in pred_nums:
+                    try:
+                        f_gt = float(gt_num)
+                        f_pred = float(pred_num)
+                        # 精确匹配 或 相对误差 < 1% 视为正确（处理平均值/四舍五入差异）
+                        if f_gt == f_pred or (f_gt != 0 and abs(f_gt - f_pred) / abs(f_gt) < 0.01):
+                            return True
+                    except ValueError:
+                        continue
 
     # 3.6 纯数字答案的严格检查
     # 如果标准答案是纯数字，不再使用 LLM 语义判断（避免将不同数字误判为等价）

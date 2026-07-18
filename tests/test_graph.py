@@ -107,10 +107,11 @@ def test_route_after_critic_fail():
 
 
 def test_route_after_executor_simple_done():
-    """simple 任务所有步骤执行完后直接去 synthesizer（跳过 Critic）"""
+    """simple 任务所有步骤成功后直接去 synthesizer（跳过 Critic）"""
     state = {
         "complexity": "simple",
         "plan": [{"id": 1, "action": "python", "description": "calc", "args": {}, "status": "done", "result": "42", "retry_count": 0}],
+        "results": [{"success": True}],  # 步骤成功 → 跳过 Critic 直接综合
         "current_step_idx": 1,  # 超过 plan 长度
     }
     result = route_after_executor(state)
@@ -118,13 +119,14 @@ def test_route_after_executor_simple_done():
 
 
 def test_route_after_executor_simple_more_steps():
-    """simple 任务还有步骤时继续执行（不经过 Critic）"""
+    """simple 任务步骤成功且还有剩余步骤时继续执行（不经过 Critic）"""
     state = {
         "complexity": "simple",
         "plan": [
             {"id": 1, "action": "search", "description": "step1", "args": {}, "status": "done", "result": "...", "retry_count": 0},
             {"id": 2, "action": "python", "description": "step2", "args": {}, "status": "pending", "result": None, "retry_count": 0},
         ],
+        "results": [{"success": True}],  # 当前步骤成功 → 继续执行下一步
         "current_step_idx": 1,  # 还有第 2 步
     }
     result = route_after_executor(state)

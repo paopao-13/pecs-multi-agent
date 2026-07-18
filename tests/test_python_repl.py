@@ -54,14 +54,14 @@ def test_block_import():
     """import os 被拦截"""
     result = python_repl({"code": "import os"})
     assert "安全检查未通过" in result
-    assert "import" in result
+    assert "os" in result  # 报错中文化为"禁止导入模块 'os'"，含被拦截模块名
 
 
 def test_block_import_from():
     """from os import system 被拦截"""
     result = python_repl({"code": "from os import system"})
     assert "安全检查未通过" in result
-    assert "import" in result
+    assert "os" in result  # 报错中文化为"禁止从 'os' 导入"，含被拦截模块名
 
 
 def test_block_exec():

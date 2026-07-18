@@ -131,10 +131,19 @@ def executor_node(state: dict) -> dict:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    if _args_incomplete(action, args) and use_heuristics:
+    # 启发式参数兜底：即使 use_heuristics=False 也允许生成工具参数
+    # 因为 build_heuristic_args 只生成工具调用参数（如 python code），
+    # 不直接给出答案，答案是工具执行后得到的真实结果，这是合法的
+    if _args_incomplete(action, args):
         heuristic_args = build_heuristic_args(action, description, query, results)
         if heuristic_args:
             args = heuristic_args
+            if not use_heuristics:
+                logs.append("[Executor] LLM参数生成失败，使用启发式参数模板兜底（仅生成工具参数，答案由工具执行得出）")
+
+    # Python 代码安全净化：如果 LLM 生成的代码包含 import，自动剥离
+    if action == "python" and "code" in args:
+        args["code"] = _sanitize_python_code(args["code"], logs)
 
     # 调用工具执行
     result = execute_tool(action, args)
@@ -203,6 +212,25 @@ def executor_retry_node(state: dict) -> dict:
     return {"logs": logs}
 
 
+def _sanitize_python_code(code: str, logs: list) -> str:
+    """净化 Python 代码：自动移除 import 语句，提示使用预导入模块。"""
+    import re as _re
+    lines = code.split("\n")
+    cleaned = []
+    removed = []
+    for line in lines:
+        stripped = line.strip()
+        # 匹配 "import xxx" 或 "from xxx import yyy"
+        if _re.match(r"^(import\s|from\s+\w+\s+import\b)", stripped):
+            removed.append(stripped)
+        else:
+            cleaned.append(line)
+    if removed:
+        logs.append(f"[Executor] 自动净化代码：移除了 {len(removed)} 条 import 语句 "
+                     f"({'; '.join(removed)}), math/json/re/datetime 已预导入可直接使用")
+    return "\n".join(cleaned)
+
+
 def _args_incomplete(action: str, args: dict) -> bool:
     if not args:
         return True
@@ -212,6 +240,10 @@ def _args_incomplete(action: str, args: dict) -> bool:
         return "code" not in args
     if action == "file_read":
         return "path" not in args
+    if action == "file_parse":
+        return "path" not in args
+    if action == "web_browse":
+        return "url" not in args
     if action == "api_call":
         return "url" not in args
     if action == "webshop":

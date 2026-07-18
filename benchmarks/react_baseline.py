@@ -16,6 +16,13 @@ from config import DEFAULT_TOKEN_BUDGET
 
 REACT_SYSTEM_PROMPT = """你是一个 ReAct 智能体，需要通过推理和行动来完成任务。
 
+重要规则：
+1. 你必须使用工具来完成任务，不要直接从记忆中给出答案
+2. 对于计算问题，必须使用 python 工具执行计算，不要心算
+3. 对于购物问题，必须使用 webshop 工具选择商品，不要编造商品名
+4. 对于信息查询，必须使用 search 工具搜索，不要凭记忆回答
+5. 只有在获得足够的 Observation 后，才能给出 Final Answer
+
 请按以下格式工作（重复直到得出答案）：
 
 Thought: 思考当前应该做什么
@@ -35,7 +42,11 @@ Final Answer: 最终答案
 - api_call: {"url": "API地址", "method": "GET"}
 - webshop: {"instruction": "购物需求描述"}
 
-注意：Action 必须是上述工具名之一，Action Input 必须是合法 JSON。
+注意：
+- Action 必须是上述工具名之一，Action Input 必须是合法 JSON
+- 每次只能执行一个工具
+- 不要在 Thought 中直接给出最终答案，必须通过工具验证
+- Final Answer 应该简短精确，直接回答问题
 """
 
 
@@ -59,10 +70,16 @@ def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_ste
     # ReAct 循环
     conversation = f"任务: {query}\n"
     final_answer = ""
+    no_tool_count = 0  # 连续不调用工具的次数
 
     for step in range(max_steps):
         # 调用 LLM 进行推理
         prompt = f"{conversation}\n\n请继续（Thought/Action/Final Answer）。"
+        
+        # 如果连续2步没调用工具，强制要求使用工具
+        if no_tool_count >= 2:
+            prompt += "\n\n警告：你已经连续多步没有使用工具。请必须使用工具来完成任务，不要直接给出答案。"
+        
         response, tokens = call_llm(prompt, REACT_SYSTEM_PROMPT, role="default")
         token_used += tokens
         logs.append(f"[ReAct] 步骤{step+1} - LLM推理 (消耗 {tokens} tokens)")
@@ -80,8 +97,11 @@ def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_ste
 
         if action is None:
             # 无法解析，让 LLM 继续尝试
+            no_tool_count += 1
             conversation += f"\n{response}\n"
             continue
+        else:
+            no_tool_count = 0  # 重置计数
 
         # 执行工具
         result = execute_tool(action, action_input)
@@ -96,6 +116,12 @@ def run_react_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, max_ste
 
         # 添加到对话
         conversation += f"\n{response}\nObservation: {result}\n"
+
+        # 限制上下文长度，保留最近2轮交互，防止 token 雪崩
+        if len(conversation) > 4000:
+            lines = conversation.split("\n")
+            # 保留前2行（任务描述）和最后12行（最近2轮完整交互）
+            conversation = "\n".join(lines[:2]) + "\n...（省略早期交互）...\n" + "\n".join(lines[-12:])
 
         # 预算检查
         if token_used > token_budget * 0.95:
