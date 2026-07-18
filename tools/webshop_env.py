@@ -64,11 +64,17 @@ class WebShopEnv:
             return _json.loads(r.read().decode())
 
     # ---- 交互 ----------------------------------------------------------
-    def reset(self, task_index: Optional[int] = None) -> Tuple[str, str]:
-        """开始一道任务。返回 (购物目标文本, 初始观察文本)。"""
+    def reset(self, task_index: Optional[int] = None, instruction: str = "") -> Tuple[str, str]:
+        """开始一道任务。返回 (购物目标文本, 初始观察文本)。
+
+        优先级：task_index > instruction 语义匹配 > 随机分配。
+        传 instruction 让 server 端按词重叠找最匹配的 task，避免 goal 与指令不匹配。
+        """
         body: Dict[str, Any] = {"num_products": 1000}
         if task_index is not None:
             body["task_index"] = int(task_index)
+        elif instruction:
+            body["instruction"] = instruction  # server 端按语义匹配 task
         d = self._post("/reset", body)
         self._session_id = d.get("session_id")
         return str(d.get("goal", "")), str(d.get("observation", ""))

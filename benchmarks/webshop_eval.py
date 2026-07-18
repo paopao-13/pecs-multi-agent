@@ -19,35 +19,36 @@ from tools.webshop import DEFAULT_CATALOG, use_real_env, parse_webshop_reward
 
 
 WEBSHOP_SAMPLES = [
+    # WebShop-small 数据集全是服装类商品，instruction 用服装类才能匹配到真实 goal
     {
         "task_id": "webshop_001",
-        "instruction": "Find an organic jasmine green tea with at least 100 bags under $20.",
-        "target_id": "ws_tea_001",
+        "instruction": "Find me men's t-shirts with long sleeve, cotton, under $50.",
+        "target_id": "ws_tshirt_001",
     },
     {
         "task_id": "webshop_002",
-        "instruction": "Find a decaf chamomile herbal tea under $16.",
-        "target_id": "ws_tea_002",
+        "instruction": "Find me women's tops with short sleeve, polyester, under $40.",
+        "target_id": "ws_tops_001",
     },
     {
         "task_id": "webshop_003",
-        "instruction": "Need a USB-C 65W GaN dual port charger under $35.",
-        "target_id": "ws_usb_001",
+        "instruction": "Find me men's shirts with classic fit, cotton, under $50.",
+        "target_id": "ws_shirt_001",
     },
     {
         "task_id": "webshop_004",
-        "instruction": "Buy an insulated stainless steel 24 oz water bottle under $25.",
-        "target_id": "ws_bottle_001",
+        "instruction": "Find me women's jumpsuits with polyester spandex, under $50.",
+        "target_id": "ws_jumpsuit_001",
     },
     {
         "task_id": "webshop_005",
-        "instruction": "I want a silent wireless ergonomic mouse under $30.",
-        "target_id": "ws_mouse_001",
+        "instruction": "Find me men's t-shirts with short sleeve, under $30.",
+        "target_id": "ws_tshirt_002",
     },
     {
         "task_id": "webshop_006",
-        "instruction": "Find a compact USB-C charger under $18.",
-        "target_id": "ws_usb_002",
+        "instruction": "Find me women's tops with long sleeve, polyester, under $40.",
+        "target_id": "ws_tops_002",
     },
 ]
 

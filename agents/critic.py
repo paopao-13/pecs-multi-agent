@@ -289,6 +289,32 @@ def _rule_evaluate(result: dict) -> dict:
                 "overall": 2.0, "feedback": "未找到满足约束的商品，需要调整查询或候选集。",
                 "step_id": result.get("step_id", 0),
             }
+        # 真实 WebShop 环境：返回 HTML 非非 SELECTED，改用 reward 信号判定
+        # webshop_interact 的输出含 "奖励=X.XXX"，reward≥0.5 视为成功
+        import re as _re_ws
+        m = _re_ws.search(r"奖励\s*=\s*([0-9]*\.?[0-9]+)", text)
+        if m:
+            reward_val = float(m.group(1))
+            if reward_val >= 0.5:
+                return {
+                    "accuracy": 5, "consistency": 5, "completeness": 5,
+                    "overall": 5.0, "feedback": f"真实 WebShop 环境 reward={reward_val:.3f}≥0.5，购买成功。",
+                    "step_id": result.get("step_id", 0),
+                }
+            if reward_val > 0:
+                # reward>0 但 <0.5：部分匹配，可接受不再重试（避免无效 4 轮重试白烧 Token）
+                return {
+                    "accuracy": 4, "consistency": 4, "completeness": 3,
+                    "overall": 3.7, "feedback": f"真实 WebShop reward={reward_val:.3f}（部分匹配），可接受不再重试。",
+                    "step_id": result.get("step_id", 0),
+                }
+            # reward==0：真实环境未买到，给低分允许 1 次重试（不再 4 轮）
+            return {
+                "accuracy": 2, "consistency": 3, "completeness": 2,
+                "overall": 2.3, "feedback": "真实 WebShop reward=0.0，未完成购买，可重试 1 次。",
+                "step_id": result.get("step_id", 0),
+            }
+        # 本地 mock 适配器：仍走 SELECTED 行判定
         if "SELECTED:" in text:
             return {
                 "accuracy": 5, "consistency": 5, "completeness": 5,

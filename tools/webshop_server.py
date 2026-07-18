@@ -35,25 +35,37 @@ _env_lock = threading.Lock()
 
 
 def _make_env(num_products: int):
-    """尝试常见 gym id 创建文本环境（不同 WebShop 版本注册名略有差异）。"""
+    """创建 WebShop 文本环境（绕过 gym wrapper，直接实例化 WebAgentTextEnv）。
+
+    gym 的 OrderEnforcing wrapper 的 reset 不接受 session 参数，
+    导致无法传 task_index 选 goal。直接实例化 WebAgentTextEnv 可绕过此限制。
+    """
     import gym
     from web_agent_site.envs import WebAgentTextEnv
 
+    # 方案 1（推荐）：直接实例化，完全绕过 gym wrapper
+    try:
+        from web_agent_site.envs.web_agent_text_env import WebAgentTextEnv as _WATE
+        env = _WATE(num_products=num_products, observation_mode="text_rich")
+        print(f"[webshop_server] 直接实例化 WebAgentTextEnv 成功, observation_mode=text_rich")
+        return env
+    except Exception as e:
+        print(f"[webshop_server] 直接实例化失败: {e}, 回退 gym.make")
+
+    # 方案 2：回退到 gym.make（wrapper 限制下 reset 无法传 task_index）
     candidates = [
-        # 新版 WebAgentTextEnv 已固定文本模式，可能不接受 observation_mode / num_products 形参
+        lambda: gym.make("WebAgentTextEnv-v0", num_products=num_products, observation_mode="text_rich"),
+        lambda: gym.make("WebAgentTextEnv-v0", num_products=num_products, observation_mode="text"),
         lambda: gym.make("WebAgentTextEnv-v0", num_products=num_products),
         lambda: gym.make("WebAgentTextEnv-v0"),
-        # 老版本注册名，带显式文本模式
-        lambda: gym.make("WebShop-v0", observation_mode="text", num_products=num_products),
-        lambda: gym.make("WebShop-v1", observation_mode="text", num_products=num_products),
     ]
     last_err: Optional[BaseException] = None
     for c in candidates:
         try:
             return c()
-        except Exception as e:  # noqa: BLE001  尝试下一种
+        except Exception as e:  # noqa: BLE001
             last_err = e
-    raise RuntimeError(f"无法创建 WebShop gym 环境（已尝试 WebAgentTextEnv-v0/WebShop-v0/v1）: {last_err}")
+    raise RuntimeError(f"无法创建 WebShop gym 环境: {last_err}")
 
 
 def _get_env(num_products: int):
@@ -72,22 +84,89 @@ def health():
     return jsonify({"status": "ok"})
 
 
+def _match_task_by_instruction(env, instruction: str) -> Optional[int]:
+    """按 instruction 与所有 goal 的词重叠度，找最匹配的 task_index。
+
+    WebShop 真实环境的 goal 是随机分配的，若 PECS 的 instruction 是"找绿茶"
+    但随机到"找运动鞋"，LLM 按指令搜索必然 0 分。本函数遍历所有 goal，
+    取与 instruction 关键词重叠最高的 task_index，保证 goal 与 instruction 语义一致。
+    """
+    if not instruction:
+        return None
+    try:
+        # goals 在 SimServer 里（env.server.goals），不在 env.unwrapped.goals
+        inner = env.unwrapped if hasattr(env, "unwrapped") else env
+        server = getattr(inner, "server", None) or inner
+        goals = getattr(server, "goals", None)
+        if not goals:
+            return None
+        import re as _re
+        inst_tokens = set(_re.findall(r"[a-z]+", instruction.lower()))
+        stop = {"find", "me", "a", "an", "the", "with", "under", "for", "and", "of", "to", "in", "on", "at", "least", "bags", "count"}
+        inst_tokens -= stop
+        if not inst_tokens:
+            return None
+        best_idx, best_score = None, 0
+        for idx, g in enumerate(goals):
+            g_text = g.get("instruction_text", "") if isinstance(g, dict) else str(g)
+            g_tokens = set(_re.findall(r"[a-z]+", g_text.lower())) - stop
+            if not g_tokens:
+                continue
+            overlap = len(inst_tokens & g_tokens) / max(len(inst_tokens), 1)
+            if overlap > best_score:
+                best_score, best_idx = overlap, idx
+        # 诊断日志：最佳匹配结果
+        best_goal = goals[best_idx].get("instruction_text", "")[:100] if best_idx is not None else "无"
+        # 至少 25% 关键词重叠才采用
+        return best_idx if best_score >= 0.25 else None
+    except Exception:
+        return None
+
+
 @app.route("/reset", methods=["POST"])
 def reset():
     data = request.get_json(silent=True) or {}
     num = int(data.get("num_products", 1000))
     env = _get_env(num)
     task_index = data.get("task_index")
+    instruction = data.get("instruction", "")
+    # 若未显式指定 task_index，但传了 instruction，按语义匹配最合适的 task
+    if task_index is None and instruction:
+        matched = _match_task_by_instruction(env, instruction)
+        if matched is not None:
+            task_index = matched
+    # 关键修复：SimServer 用 session_id 缓存 goal，若 session_id 已存在则复用旧 goal
+    # （L511 if session_id not in user_sessions 才会分配新 goal）。
+    # env.reset(session) 的 session 若是 int，会同时作为 session_id 和 goal 索引（L246-247）。
+    # 所以传 task_index(int) 作为 session，每次都唯一（不同 task_index 产生不同 session_id），
+    # 强制 receive 按 task_index 重新分配 goal。
+    # 直接用 env 实例（已绕过 wrapper），reset(session) 可传 task_index 选 goal
     try:
-        out = env.reset(int(task_index)) if task_index is not None else env.reset()
+        if task_index is not None:
+            out = env.reset(int(task_index))
+        else:
+            out = env.reset()
     except TypeError:
+        out = env.reset()
+    except Exception:
         out = env.reset()
     if isinstance(out, tuple) and len(out) >= 2:
         obs, info = out[0], out[1]
         goal = info.get("goal", "") if isinstance(info, dict) else ""
     else:
         obs, goal = out, ""
-    return jsonify({"session_id": "default", "goal": str(goal), "observation": str(obs)})
+    # WebShop reset 返回 (obs, None)，goal 藏在 obs 的 Instruction 行里
+    # text_rich 模式: "Instruction: \nFind me...\n" ；html 模式: <h4>Instruction:<br>Find me...</h4>
+    if not goal and obs:
+        import re as _re_goal
+        # text_rich/text 模式：Instruction: 后换行，goal 在下一行直到换行结束
+        m = _re_goal.search(r'Instruction:\s*\n\s*(Find me[^\n]+)', obs)
+        if not m:
+            # html 模式兜底
+            m = _re_goal.search(r'instruction-text[^>]*>.*?<h4>(.*?)</h4>', obs, _re_goal.S)
+        if m:
+            goal = m.group(1).replace("<br>", "").replace("Instruction:", "").strip()
+    return jsonify({"session_id": str(task_index) if task_index is not None else "default", "goal": str(goal), "observation": str(obs)})
 
 
 @app.route("/step", methods=["POST"])

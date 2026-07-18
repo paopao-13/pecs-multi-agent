@@ -40,27 +40,129 @@ def get_real_env():
 
 # LLM 决策购物动作的提示词（用于多轮交互中"看页面→选下一步"）
 _WEBSHOP_DECISION_SYSTEM = (
-    "你是一个 WebShop 购物 Agent。根据当前页面（observation）和购物目标（goal），"
-    "选择下一个动作。动作必须是以下之一：\n"
-    "- search[关键词]：搜索商品（关键词用英文）\n"
-    "- click[BUTTON_X]：点击页面上的按钮/选项（X 为编号，如 BUTTON_1）\n"
-    "- buy：完成购买（确定已选好符合全部约束的商品后）\n"
-    "只输出一个动作本身，不要任何解释或多余文字。"
+    "你是 WebShop 购物 Agent。根据页面摘要和购物目标选下一步动作。\n"
+    "动作格式：\n"
+    "- search[关键词]：搜索商品（仅在搜索页且有未尝试关键词时用）\n"
+    "- click[BUTTON_X]：点击选项/商品（仅在搜索结果页选商品时用，X 为编号）\n"
+    "- buy：立即购买\n\n"
+    "决策规则（严格按顺序判断）：\n"
+    "1. 如果页面有 Buy按钮 且商品名包含 goal 中≥2个关键属性 → 必须输出 buy\n"
+    "2. 如果是搜索结果页 且有商品匹配 goal 关键属性 → click 对应商品（如 click[BUTTON_1]）\n"
+    "3. 如果是搜索页 或 当前关键词已搜过且无结果 → search[新关键词]（用 goal 里的英文同义词）\n"
+    "4. 步数将尽（历史≥10步）且还没买 → 必须 buy 避免空手\n"
+    "只输出一个动作本身，不要任何解释。"
 )
 
 
+def _summarize_obs(obs: str) -> str:
+    """从 HTML 抽取关键购物信息，降低 LLM 解析负担。
+
+    原始 HTML 2000 字符 LLM 难解析，本函数提取页面类型、Buy按钮、商品列表，
+    压缩成结构化摘要，让 LLM 聚焦决策。
+    """
+    if not obs:
+        return "[空页面]"
+    try:
+        from bs4 import BeautifulSoup
+        soup = BeautifulSoup(obs, "html.parser")
+        # 检测页面类型与关键按钮
+        has_search_box = bool(soup.find("input", {"name": "search"}) or soup.find("input", {"id": "search"}))
+        has_buy_button = "Buy Now" in obs or "buy-now" in obs.lower() or "buy_now" in obs.lower()
+        # 抽取商品选项（搜索结果页的 item 或详情页的选项）
+        items = []
+        for div in soup.select("[class*=product], [class*=item], [class*=SearchItem]")[:5]:
+            txt = div.get_text(" ", strip=True)[:100]
+            if txt:
+                items.append(txt)
+        # 抽取可点击按钮编号
+        buttons = []
+        import re as _re_btn
+        for m in _re_btn.finditer(r"BUTTON_(\d+)", obs):
+            if m.group(1) not in buttons:
+                buttons.append(m.group(1))
+        return (
+            f"[页面类型] {'商品详情页(可购买)' if has_buy_button else '搜索结果页' if items else '搜索页' if has_search_box else '其他'}\n"
+            f"[Buy按钮] {'有-可立即购买' if has_buy_button else '无'}\n"
+            f"[可点击按钮] BUTTON_{',BUTTON_'.join(buttons[:8]) if buttons else '无'}\n"
+            f"[商品/选项] {items[:3] if items else '空'}"
+        )
+    except Exception:
+        # BeautifulSoup 失败时降级用原始文本前 800 字符
+        return obs[:800]
+
+
 def _decide_webshop_action(goal: str, obs: str, history: list) -> str:
-    """让 LLM 根据当前页面与历史，决定下一个 WebShop 动作。"""
+    """让 LLM 根据当前页面与历史，决定下一个 WebShop 动作。
+
+    采用"规则兜底 + LLM 决策"混合策略：
+    1. 规则层先判断页面类型与必做动作（避免 LLM 陷入 search 循环）
+    2. LLM 层做精细化选择（选哪个商品/关键词）
+    """
     from agents.llm_utils import call_llm
     hist = "\n".join(history[-6:])
+    obs_summary = _summarize_obs(obs)
+
+    # === 规则兜底层：打破 search 循环 ===
+    # 判断页面状态
+    has_buy_button = "Buy Now" in obs or "buy-now" in obs.lower()
+    has_search_results = "[button]" in obs or "BUTTON_" in obs
+    has_search_box = 'name="search"' in obs or 'id="search"' in obs
+    search_count = sum(1 for h in history if h.startswith("step") and "search[" in h)
+    click_count = sum(1 for h in history if h.startswith("step") and "click[" in h)
+
+    # 规则 1：详情页（有 Buy 按钮）→ 必须买（click[Buy Now] 触发结算，reward>0）
+    # 注意：WebShop 的购买动作是 click[Buy Now]，不是 buy（buy 不触发结算）
+    if has_buy_button:
+        return "click[Buy Now]"
+
+    # 规则 2：搜索结果页（有商品按钮），且已经搜索过 → click 最匹配的商品进详情页
+    # 这是打破 search 循环的关键：搜到结果就进去看，不要反复换关键词
+    # text_rich 模式下商品按钮格式为 [button] B09RFDP1C3 [button_]，ASIN 即 click 参数
+    if has_search_results and search_count >= 1 and click_count < search_count:
+        # 从 obs 提取所有可用 ASIN（[button] XXXXX [button_] 格式）
+        import re as _re_asin
+        asins = _re_asin.findall(r"\[button\]\s*([A-Z0-9]{10})\s*\[button_\]", obs)
+        if not asins:
+            # 没有商品 ASIN，可能是选项按钮，兜底 click 第一个 [button]
+            btns = _re_asin.findall(r"\[button\]\s*([^\[\]]+?)\s*\[button_\]", obs)
+            if btns:
+                return f"click[{btns[0].strip()}]"
+            return "search[" + goal[:30] + "]"
+        # 用 LLM 从候选 ASIN 中选最匹配 goal 的商品
+        asin_list = "\n".join(f"- {a}" for a in asins[:8])
+        prompt = (
+            f"购物目标：{goal}\n\n"
+            f"当前页面有这些商品（ASIN 编号）：\n{asin_list}\n\n"
+            f"页面文本：\n{obs_summary}\n\n"
+            f"请选择最匹配购物目标的商品 ASIN。只输出一个动作 click[ASIN]，ASIN 必须从上面列表里选。"
+        )
+        action, _ = call_llm(prompt, "你是购物助手，选最匹配的商品 ASIN。", role="executor")
+        action = (action or "").strip()
+        # 校验：click[X] 且 X 是有效 ASIN
+        m = _re_asin.match(r"click\[([A-Z0-9]{10})\]", action)
+        if m and m.group(1) in asins:
+            return action
+        # LLM 没选对，兜底 click 第一个 ASIN（宁可进详情页看看，也不要反复 search）
+        return f"click[{asins[0]}]"
+
+    # 规则 3：搜索页（无结果），用 LLM 生成关键词
     prompt = (
         f"购物目标：{goal}\n\n"
         f"已执行动作：\n{hist}\n\n"
-        f"当前页面：\n{obs[:2000]}\n\n"
-        f"下一个动作："
+        f"当前页面摘要：\n{obs_summary}\n\n"
+        f"你在搜索页。请根据购物目标生成一个搜索关键词（英文，用商品的英文名称和关键属性）。"
+        f"只输出 search[关键词]，不要解释。注意：不要重复已搜过的关键词。"
     )
-    action, _ = call_llm(prompt, _WEBSHOP_DECISION_SYSTEM, role="executor")
-    return (action or "").strip()
+    action, _ = call_llm(prompt, "你是购物助手，生成搜索关键词。", role="executor")
+    action = (action or "").strip()
+    if action.startswith("search[") and "]" in action:
+        return action
+    # 兜底：用 goal 的关键词
+    import re as _re_kw
+    kws = _re_kw.findall(r"[a-z]+", goal.lower())
+    stop = {"find", "me", "a", "an", "the", "with", "under", "for", "and", "of", "to", "in", "on"}
+    kws = [k for k in kws if k not in stop][:3]
+    return f"search[{' '.join(kws)}]"
 
 
 def webshop_interact(args: dict) -> str:
@@ -75,7 +177,8 @@ def webshop_interact(args: dict) -> str:
         return "错误：缺少 instruction 参数"
 
     env = get_real_env()
-    goal, obs = env.reset()
+    # 传 instruction 让 server 端按语义匹配 task，避免随机 goal 与指令不匹配
+    goal, obs = env.reset(instruction=instruction)
     if not goal:
         goal = instruction  # reset 未返回 goal 时（取决于版本）用 instruction 兜底
 
@@ -88,7 +191,13 @@ def webshop_interact(args: dict) -> str:
         history.append(f"step{i + 1}: {action}")
         obs, reward, done, _info = env.step(action)
         last_reward = reward
-        if done or action.strip().lower() == "buy":
+        if done or action.strip().lower() in ("buy", "click[buy now]"):
+            break
+        # buy 兜底：步数过半且 reward 仍 0，强制购买避免空手（至少拿到部分 reward）
+        if i >= env.max_steps - 3 and last_reward == 0.0:
+            history.append(f"step{i + 2}: click[Buy Now] (强制结算)")
+            obs, reward, done, _info = env.step("click[Buy Now]")
+            last_reward = reward
             break
 
     return (

@@ -2,19 +2,19 @@
   "benchmark": "webshop",
   "mode": "real",
   "multi_agent": {
-    "success_rate": 0.0,
-    "success_count": 0,
+    "success_rate": 0.3333,
+    "success_count": 2,
     "total_samples": 6,
-    "avg_tokens_per_task": 5204
+    "avg_tokens_per_task": 2168
   },
   "react_baseline": {
     "success_rate": 0.0,
     "success_count": 0,
     "total_samples": 6,
-    "avg_tokens_per_task": 7314
+    "avg_tokens_per_task": 1926
   },
   "diff": {
-    "success_pp": 0.0,
-    "token_savings_pct": 28.8
+    "success_pp": 33.33,
+    "token_savings_pct": -12.6
   }
 }
