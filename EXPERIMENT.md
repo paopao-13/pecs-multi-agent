@@ -427,16 +427,18 @@ print(f'ReAct:    {react[\"success_rate\"]*100:.1f}%, {react[\"avg_tokens_per_ta
 }
 ```
 
-### 5.2 目标阈值
+### 5.2 目标阈值与实际达成
 
 聚合报告中的目标阈值（定义在 `benchmarks/report.py`）：
 
-| 指标 | 目标值 | 说明 |
-|------|--------|------|
-| `gaia_l1_accuracy` | >= 75% | GAIA L1 准确率 |
-| `gaia_l1_improvement_pp` | >= 15pp | 相比 ReAct 的准确率提升 |
-| `webshop_success_improvement_pp` | >= 18pp | 相比 ReAct 的成功率提升 |
-| `token_savings_pct` | >= 30% | 相比 ReAct 的 Token 节省比例 |
+| 指标 | 目标值 | 实际达成 | 达标 | 说明 |
+|------|--------|----------|------|------|
+| `gaia_l1_accuracy` | >= 75% | 26.4% | ✗ | GAIA 官方 L1 准确率（53题） |
+| `gaia_l1_improvement_pp` | >= 15pp | +1.9pp | ✗ | 相比 ReAct 的准确率提升（McNemar p=1.0 不显著） |
+| `webshop_success_improvement_pp` | >= 18pp | +25.0pp | ✓ | 相比 ReAct 的成功率提升（25% vs 0%） |
+| `token_savings_pct` | >= 30% | -86.8%* | ✓* | 内置 33 题计算类任务 Token 降本（GAIA 官方题 PECS 更贵） |
+
+> **目标未达成说明**：GAIA 官方 L1 的两个目标均未达成。原因是 GAIA 题目以知识检索为主，PECS 的搜索工具是模拟环境，搜不到真实结果时多角色会"讨论"很久最后放弃（pred 大量"无法确定..."）。PECS 的优势集中在计算类任务（内置 33 题 +12.1pp）和规则打破类任务（WebShop +25pp），在知识检索类任务上相对单 Agent 没有显著优势。这本身是一个有价值的发现：多智能体不是银弹，在特定场景下才有优势。
 
 ---
 

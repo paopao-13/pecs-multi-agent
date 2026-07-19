@@ -7,10 +7,13 @@
     "token_savings_pct": 30.0
   },
   "gaia_l1": {
-    "multi_agent_accuracy": 1.0,
-    "react_accuracy": 0.8788,
-    "improvement_pp": 12.12,
-    "target_met": false
+    "multi_agent_accuracy": 0.2642,
+    "react_accuracy": 0.2453,
+    "improvement_pp": 1.9,
+    "target_met": false,
+    "note": "GAIA official Level 1 validation set (53 tasks), bug-fixed re-evaluation",
+    "sample_size": 53,
+    "mcnemar_p": 1.0
   },
   "webshop": {
     "multi_agent_success_rate": 0.25,
@@ -1865,5 +1868,13 @@
       "token_savings_pecs_vs_react_pct": 56.8,
       "token_savings_pecs_vs_light_pct": 58.0
     }
+  },
+  "gaia_l1_builtin": {
+    "multi_agent_accuracy": 1.0,
+    "react_accuracy": 0.8788,
+    "improvement_pp": 12.12,
+    "target_met": false,
+    "note": "Built-in 33 tasks (computation-heavy), not official distribution",
+    "sample_size": 33
   }
 }

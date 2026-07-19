@@ -91,16 +91,16 @@ sequenceDiagram
 > - **real_api 模式**（配置 `LLM_API_KEY` 后）：使用真实 LLM API 进行规划/执行/综合，搜索类任务端到端调用真实模型
 > - **sample/mock 模式**（未配置 API Key）：使用项目内置样例和启发式兜底，保证离线可运行
 >
-> 下方评测结果基于 GLM-4.7-Flash 真实 API 运行，配置方法见下方「安装」章节。
+> 下方评测结果基于真实 LLM API 运行，配置方法见下方「安装」章节。
 >
 > - **GAIA L1**：从 28 道自定义 Level 1 级别样例中选取 10 道进行评测（5 道知识检索 + 5 道大数计算），覆盖官方 GAIA 题型模式但非原始题目
 > - **WebShop**：从 WebShop-small 数据集（6910 个真实 goals）随机采样 12 道服装类 instruction，在真实 AgentBench 文本环境上评测（rank_bm25 搜索后端 + HTTP 桥 + text_rich 模式）
-> - **ReAct 基线**：同一 GLM 模型 + 同一工具集 + 同一题目，保证对比公平性
+> - **ReAct 基线**：同一模型 + 同一工具集 + 同一题目，保证对比公平性
 > - **Token 统计**：端到端对比（含 LLM 调用 + 工具执行全流程），非单次 API 调用
 >
 > **接入官方数据集方法**：参见 [EXPERIMENT.md](EXPERIMENT.md) 中「官方数据集接入」章节
 
-**实验环境**：GLM-4.7-Flash API（temperature=0.0~0.5 按角色）| Python 3.10.11 | langgraph 0.2.x | 2026-07-15
+**实验环境**：内置 33 题与 WebShop 12 题基于 GLM-4.7-Flash API（temperature=0.0~0.5 按角色）；GAIA 官方 53 题基于 DeepSeek-chat（bug 修复后重跑验证）| Python 3.10.11 | langgraph 0.2.x | 2026-07-19
 
 | 指标 | ReAct 基线 | 本框架实测 | 提升幅度 | 目标值 | 达标 |
 |------|:-----------:|:----------:|:--------:|:------:|:----:|
@@ -217,7 +217,7 @@ sequenceDiagram
 
 ### 多框架统一对照实验
 
-使用同一组 GAIA 样例、统一 GLM-4.7-Flash 模型、相同工具集，对比不同框架：
+使用同一组 GAIA 样例、同一模型、相同工具集，对比不同框架：
 
 | 框架 | GAIA 准确率 | Token/task | 特性差异 |
 |------|:-----------:|:----------:|----------|
@@ -456,7 +456,7 @@ pecs-multi-agent/
 │   ├── TECH_SELECTION.md  # 技术选型决策报告
 │   ├── PERFORMANCE.md     # 性能瓶颈分析
 │   ├── DEPLOYMENT.md      # 生产部署方案
-│   ├── PRD.md             # 产品需求文档
+│   ├── testing.md        # TDD 实践与 bug 发现记录
 │   ├── API.md             # API接口文档
 │   ├── SECURITY_AUDIT.md  # 安全审计报告
 │   ├── MONITORING.md      # 监控告警方案
@@ -497,7 +497,7 @@ pecs-multi-agent/
 | [docs/TECH_SELECTION.md](docs/TECH_SELECTION.md) | 技术选型决策报告 |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能瓶颈分析 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署方案 |
-| [docs/PRD.md](docs/PRD.md) | 产品需求文档 |
+| [docs/testing.md](docs/testing.md) | TDD 实践与 bug 发现记录 |
 | [docs/API.md](docs/API.md) | API接口文档 |
 | [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告 |
 | [docs/MONITORING.md](docs/MONITORING.md) | 监控告警方案 |
