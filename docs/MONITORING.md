@@ -187,7 +187,7 @@ groups:
 
 ## 6. 当前状态
 
-本项目当前为求职展示项目，未接入 Prometheus/Grafana。上述方案为生产环境部署时的参考设计。接入步骤：
+本项目当前为技术展示项目，未接入 Prometheus/Grafana。上述方案为生产环境部署时的参考设计。接入步骤：
 
 1. `pip install prometheus-client`
 2. 在 `app.py` 中添加指标暴露代码
