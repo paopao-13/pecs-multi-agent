@@ -113,9 +113,9 @@ python webshop_server.py --port 8000 --num-products 1000
 
 ```bash
 export WEBSHOP_SERVER_URL=http://localhost:8000
-export LLM_API_KEY=[REDACTED-LINGSHU-KEY]
-export LLM_BASE_URL=https://www.lingshucode.com/v1
-export LLM_MODEL=glm-5.2
+export LLM_API_KEY=<你的_API_KEY>
+export LLM_BASE_URL=<你的网关 Base URL>
+export LLM_MODEL=<网关支持的模型名>
 
 cd pecs-multi-agent
 python run_resumable.py webshop_001

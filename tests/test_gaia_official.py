@@ -153,7 +153,7 @@ class TestCheckDataLeakage:
     def test_leakage_truth_in_question(self):
         """故事性测试：标准答案直接出现在题目中 → 检测到泄露
 
-        面试讲这个故事：GAIA validation set 答案公开，
+        背景：GAIA validation set 答案公开，
         如果题目文本包含答案，LLM 可能直接复述而非真正推理。
         check_data_leakage 在评测前拦截这类题目。
         """

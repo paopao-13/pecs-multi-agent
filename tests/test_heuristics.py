@@ -1,7 +1,7 @@
 """测试 agents/heuristics.py 的启发式路由逻辑
 
-启发式路由是 PECS 的核心卖点（计算题 0-token 秒杀），
-面试必问"启发式怎么识别题目类型"。
+启发式路由是 PECS 的关键设计（计算题 0-token 秒杀），
+体现框架对确定型任务的零成本处理。
 
 测试覆盖：
 - build_heuristic_plan: webshop/file/url/幂次/阶乘/平方和/fib/无匹配

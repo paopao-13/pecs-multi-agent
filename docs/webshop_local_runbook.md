@@ -22,7 +22,7 @@
 │  调 LLM 决策下一步动作    │   返回 observation/reward   │  包着 WebAgentTextEnv-v0   │
 └─────────────────────────┘                             └──────────────────────────┘
         │                                                        │
-        │ 用 lingshucode GLM 生成动作                              │ 用 rank_bm25 搜索商品
+        │ 用 LLM 网关 GLM 生成动作                                 │ 用 rank_bm25 搜索商品
         ▼                                                        ▼
    tools/webshop.py → WebShopEnv(HTTP 客户端)          web_agent_site 引擎 + BM25 搜索后端
 ```
@@ -136,10 +136,10 @@ curl http://localhost:8000/health
 # 连真实环境的开关，只有这一个变量
 export WEBSHOP_SERVER_URL=http://localhost:8000
 
-# 下面三个一般在 .env 里已配好（lingshucode GLM），如未配再 export
-export LLM_API_KEY=你的key
-export LLM_BASE_URL=https://www.lingshucode.com/v1
-export LLM_MODEL=glm-5.2
+# 下面三个一般在 .env 里已配好，如未配再 export
+export LLM_API_KEY=<你的_API_KEY>
+export LLM_BASE_URL=<你的网关 Base URL>
+export LLM_MODEL=<网关支持的模型名>
 
 cd pecs-multi-agent
 python run_webshop.py

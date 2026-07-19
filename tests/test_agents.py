@@ -1,6 +1,6 @@
 """测试 agents/ 模块的核心辅助函数
 
-聚焦面试必问的纯逻辑函数（不依赖 LLM 调用）：
+聚焦核心纯逻辑函数（不依赖 LLM 调用）：
 - planner._is_deterministic_task: 判断是否为确定性任务
 - executor._sanitize_python_code: AST 安全沙箱的代码净化
 - executor._args_incomplete: 工具参数完整性检查
