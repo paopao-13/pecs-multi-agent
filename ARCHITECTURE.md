@@ -384,6 +384,18 @@ LLM 生成 Python 代码
 返回执行结果或错误信息
 ```
 
+### 6.6 超时熔断与资源限制（防逃逸兜底）
+
+AST 白名单拦截的是"语法层"攻击，但无法阻止**合法但失控**的代码（如 `while True: pass`、超大内存分配）。因此沙箱执行额外叠加两层兜底：
+
+| 兜底机制 | 实现 | 作用 |
+|------|------|------|
+| **执行超时** | 跨平台用 `concurrent.futures.ThreadPoolExecutor` + `future.result(timeout=N)`（默认 5s）；Unix 可叠加 `signal.alarm` | 单段代码超时被强制终止，防止死循环卡死宿主 |
+| **资源配额** | 限制可写变量数量、禁用大对象构造 | 防止内存雪崩 |
+| **异常捕获** | `exec` 外层 `try/except`，捕获 `TimeoutError` / `MemoryError` / `RecursionError` | 任何逃逸尝试降级为"执行失败"返回，绝不污染主流程 |
+
+> 面试防御话术：被问"如何防代码执行逃逸"时，回答 = **AST 黑名单（禁 import/exec/eval/`__import__`）+ 白名单 `__builtins__` + dunder 属性链拦截 + 跨平台超时熔断** 四层叠加；生成代码无法触达 `os`/`sys`/`subprocess`，即便绕过前两层也会在超时层被熔断。
+
 ---
 
 ## 7. 统一配置加载规则
