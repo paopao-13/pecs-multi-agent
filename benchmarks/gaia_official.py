@@ -226,7 +226,8 @@ def evaluate_answer_official(predicted: str, ground_truth: str) -> bool:
             f"是否等价（是/否）:"
         )
         result, _ = call_llm(prompt, "你是答案判定助手，只回答是或否", role="executor")
-        return "是" in result or "yes" in result.lower()
+        result = result.strip().rstrip(".。!,！？?")
+        return result == "是" or result.lower() == "yes"
     except Exception:
         return False
 
@@ -253,18 +254,20 @@ def check_data_leakage(question: str, ground_truth: str) -> bool:
     norm_q = _normalize_official(question)
     norm_truth = _normalize_official(ground_truth)
 
-    # 归一化后包含检查
-    if norm_truth and len(norm_truth) >= 2 and norm_truth in norm_q:
-        return True
-
-    # 数字精确检查
-    # 防止 "17" 出现在 "2017" 里的误报:要求作为独立 token 出现
+    # 数字答案：优先用 word boundary 检查
+    # 避免 "17" 误匹配 "2017"（归一化包含检查不使用 word boundary 会误报）
     truth_num = _parse_number(ground_truth)
     if truth_num is not None:
         truth_str = str(int(truth_num)) if truth_num == int(truth_num) else str(truth_num)
         # 用 word boundary 检查数字是否作为独立 token 出现
         if re.search(r"\b" + re.escape(truth_str) + r"\b", question):
             return True
+        # 数字答案只做 word boundary 检查，跳过归一化包含检查
+        return False
+
+    # 非数字答案：归一化后包含检查
+    if norm_truth and len(norm_truth) >= 2 and norm_truth in norm_q:
+        return True
 
     return False
 
