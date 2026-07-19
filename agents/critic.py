@@ -198,7 +198,7 @@ def _rule_evaluate(result: dict) -> dict:
     description = result.get("description", "")
 
     # 执行失败的直接给低分
-    if not success or "错误" in text[:20] or "执行错误" in text[:20]:
+    if not success or "错误" in text or "执行错误" in text:
         return {
             "accuracy": 2, "consistency": 2, "completeness": 2,
             "overall": 2.0, "feedback": f"执行失败，请检查参数和代码后重试。",

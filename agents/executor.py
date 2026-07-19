@@ -155,7 +155,7 @@ def executor_node(state: dict) -> dict:
         "action": action,
         "description": description,
         "result": result,
-        "success": not result.startswith("错误") and not result.startswith("执行错误") and "失败" not in result[:20],
+        "success": not result.startswith("错误") and not result.startswith("执行错误") and "失败" not in result,
     }
     results.append(result_entry)
 
@@ -221,7 +221,7 @@ def _sanitize_python_code(code: str, logs: list) -> str:
     for line in lines:
         stripped = line.strip()
         # 匹配 "import xxx" 或 "from xxx import yyy"
-        if _re.match(r"^(import\s|from\s+\w+\s+import\b)", stripped):
+        if _re.match(r"^(import\s|from\s+[\w.]+\s+import\b)", stripped):
             removed.append(stripped)
         else:
             cleaned.append(line)
