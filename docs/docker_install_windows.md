@@ -75,7 +75,7 @@ Docker 装好后，在项目目录里一键启动（脚本会自己 clone 仓库
 
 **方式 B（命令行）：**
 ```powershell
-cd D:\简历\pecs-multi-agent
+cd pecs-multi-agent
 scripts\run_real_webshop.bat
 ```
 
@@ -88,7 +88,7 @@ scripts\run_real_webshop.bat
 在「终端(管理员)」里切到项目目录，设置环境变量后跑：
 
 ```powershell
-cd D:\简历\pecs-multi-agent
+cd pecs-multi-agent
 set WEBSHOP_SERVER_URL=http://localhost:3000
 python run_resumable.py webshop_001
 ```

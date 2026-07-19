@@ -112,19 +112,27 @@ sequenceDiagram
 
 | 指标 | ReAct 基线 | PECS 多智能体 | 差值 | 统计检验 |
 |------|:-----------:|:----------:|:--------:|:--------:|
-| 准确率（总体） | 15.1% (8/53) | 26.4% (14/53) | +11.3pp | McNemar p=0.11 |
-| 准确率（无附件） | 21.6% (8/37) | 37.8% (14/37) | +16.2pp | - |
-| 准确率（有附件） | 0% (0/10) | 0% (0/10) | 0pp | 附件题均失败 |
-| 平均 Token/题 | 4,063 | 17,256 | PECS 更高* | - |
+| 准确率（总体） | 24.5% (13/53) | 26.4% (14/53) | +1.9pp | McNemar p=1.0 |
+| 准确率（无附件） | 28.6% (12/42) | 33.3% (14/42) | +4.8pp | - |
+| 准确率（有附件） | 9.1% (1/11) | 0% (0/11) | -9.1pp | 附件题 PECS 均失败 |
+| 平均 Token/题 | 5,076 | 20,966 | PECS 更高* | - |
+| 平均耗时/题 | 26.9s | 71.4s | PECS 更慢 | - |
 
 > 数据来源：HuggingFace `gaia-benchmark/GAIA` Level 1 validation set（53题），非内置 mock。含真实搜索、多步推理、文件解析（xlsx/pdf/py/mp3）。3 道 mp3 附件题因需多模态模型标记 skipped。
 >
-> \* PECS Token 更高：多角色协作（Planner+Executor+Critic+Synthesizer）的固有开销，在难题上 PECS 搜索更深入导致 token 上涨。内置 33 题 PECS Token 更低，因计算题启发式 0-token 秒杀拉低了均值。
+> \* PECS Token 更高：多角色协作（Planner+Executor+Critic+Synthesizer）的固有开销，在知识检索类任务上 PECS 搜索更深入但未必更准。内置 33 题 PECS Token 更低，因计算题启发式 0-token 秒杀拉低了均值。
 >
-> **统计显著性**：McNemar 检验 p=0.11（>0.05），差异**不显著**。b=8（PECS对ReAct错）、c=2（PECS错ReAct对），方向一致支持 PECS，但样本量 n=53 仍偏小，不足以达到统计显著。需 n≥100 才有 80% 把握检出 11pp 差异。
+> **统计显著性**：McNemar 检验 p=1.0（>>0.05），差异**完全不显著**。b=6（PECS对ReAct错）、c=5（PECS错ReAct对），两者几乎持平。结论：在 GAIA 这类以知识检索为主的任务上，多智能体相对单 Agent **没有显著优势**。
 
-> **三大局限诚实声明（招聘方追问前必读）**：
-> 1. **GAIA 样本偏计算**：内置 33 题中 16 道大数计算（启发式 0-token 秒杀）+ 10 道知识检索 + 4 道文件解析 + 3 道网页浏览，非官方 165 题分布。扩样后 ReAct 准确率从 80% 升至 87.88%（简单计算题 ReAct 用 python 工具也能做对），导致差值从 +20pp 缩小至 +12.1pp。但 PECS 仍保持 100% 准确率，且 Token 降本从 38.8% 提升至 86.8%（ReAct 在文件解析题上 token 暴涨）。PECS 的核心优势集中在：文件解析 100% (4/4) vs ReAct 25% (1/4)、Token 降本 86.8%。**已接入 GAIA 官方 Level 1 validation set（53题）验证**，PECS 26.4% vs ReAct 15.1%（+11.3pp），方向一致但 McNemar p=0.11 不显著（n=53 仍偏小）。
+> **实验数据修正声明（TDD 发现的 bug 影响）**：
+> 上述数据是修复 2 个影响评测准确性的 bug 后的真实结果。原始数据为 PECS 26.4% vs ReAct 15.1%（+11.3pp），但 TDD 补测试过程中发现：
+> 1. **LLM 兜底判定误匹配**（bug #2）：`"是" in "不是"` 导致错误答案被判正确，修复后 4 道 PECS 题从 True → False
+> 2. **数据泄露检查误判**（bug #7）：`"17" in "2017"` 导致数字答案被误判为泄露，5 道题被错误跳过，修复后补评（ReAct 5 道全对，PECS 4 对 1 错）
+>
+> 修正后 PECS 准确率不变（-4+4=0），但 ReAct 准确率从 15.1% 升至 24.5%（补评 5 道全对），差值从 +11.3pp 缩至 +1.9pp。这说明原始优势有很大部分来自 bug 导致的 ReAct 题目被错误跳过，而非 PECS 真的更强。诚实更新数据比掩盖更有价值。
+
+> **三大局限诚实声明（追问前必读）**：
+> 1. **GAIA 样本偏计算**：内置 33 题中 16 道大数计算（启发式 0-token 秒杀）+ 10 道知识检索 + 4 道文件解析 + 3 道网页浏览，非官方 165 题分布。扩样后 ReAct 准确率从 80% 升至 87.88%（简单计算题 ReAct 用 python 工具也能做对），导致差值从 +20pp 缩小至 +12.1pp。但 PECS 仍保持 100% 准确率，且 Token 降本从 38.8% 提升至 86.8%（ReAct 在文件解析题上 token 暴涨）。PECS 的核心优势集中在：文件解析 100% (4/4) vs ReAct 25% (1/4)、Token 降本 86.8%。**接入 GAIA 官方 Level 1 validation set（53题）验证后**，PECS 26.4% vs ReAct 24.5%（+1.9pp），McNemar p=1.0 不显著——多智能体在知识检索类任务上相对单 Agent 没有显著优势，PECS 的价值集中在计算类和规则打破类任务。
 > 2. **WebShop 真实环境达标（25.0% vs 0%, +25.0pp）**：在真实 AgentBench WebShop 文本环境上跑通（rank_bm25 纯 Python 搜索后端 + HTTP 桥 + text_rich 模式,非本地 mock），从 WebShop-small 数据集 6910 个真实 goals 中随机采样 12 道服装类 instruction。PECS 3/12 成功（reward≥0.5）vs ReAct 0/12。公平对比设计：PECS 的 Executor 启发式规则层（搜到结果即 click[ASIN] 进详情页、click[Buy Now] 触发结算）vs ReAct 纯 LLM 决策（无规则层兜底）。关键修复：① 直接实例化 WebAgentTextEnv 绕过 gym wrapper，让 reset(task_index) 按 instruction 语义匹配真实 goal；② observation_mode=text_rich 输出 [button] 标记和 ASIN；③ Critic 用 reward 信号替代 SELECTED 判定。Token 方面 PECS 2576 vs ReAct 5958（降本 56.8%，ReAct 纯 LLM 决策陷入 search 循环导致 15 步空转+幻觉答案）。
 >
 >    **消融实验（证明优势来自"打破 search 循环"而非"有规则层"本身）**：新增 ReAct-light 中间档（只有"Buy按钮→click[Buy Now]"购物常识，不强制 click[ASIN] 进详情页）。三组对比：PECS 完整规则层 25.0% / ReAct-light 轻量规则层 0.0% / ReAct 纯 LLM 0.0%。ReAct-light vs ReAct = +0.0pp（轻量规则增量贡献为零），PECS vs ReAct-light = +25.0pp。结论：Buy 规则单独存在无效（LLM 不点商品进详情页，永远到不了有 Buy 按钮的页面，15 步全在 search 页循环 reward=0）；PECS 的 +25pp 完全来自"搜到结果即 click[ASIN] 打破 search 循环"这一具体 Executor 启发式，而非"加规则层"这个动作本身。完整数据见 `results/webshop_run.json`,部署方法见 [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md)。
@@ -133,6 +141,7 @@ sequenceDiagram
 > 评测样本：GAIA 33题（16大数计算 + 10知识检索 + 4文件解析 + 3网页浏览），WebShop 12题（WebShop-small 数据集真实采样,rank_bm25 搜索后端,真实 AgentBench 文本环境）。
 > ReAct 基线使用同一 DeepSeek-chat 模型 + 同一工具集 + 同一题目，保证对比公平性。
 > 完整评测数据见 `results/target_report.json`（GAIA）与 `results/webshop_run.json`（WebShop 真实环境）。
+> 测试实践与 TDD 发现的 7 个 bug 记录见 [docs/testing.md](docs/testing.md)。
 
 **GAIA 逐任务对比**：
 
@@ -202,9 +211,9 @@ sequenceDiagram
 
 ### 统计显著性说明
 
-> 样例集规模：GAIA n=33（接近统计显著性最低要求 n≥30），WebShop n=12（仍偏小，但有消融实验三组对比支撑）。
+> 样例集规模：GAIA 内置 n=33（接近统计显著性最低要求 n≥30），GAIA 官方 n=53，WebShop n=12（仍偏小，但有消融实验三组对比支撑）。
 > 上述结果为样例集上的**精确观测值**，旨在验证架构可行性和机制有效性，**不构成**在官方完整测试集上的性能承诺。
-> 接入官方 GAIA 测试集（466题）后可进行卡方检验/McNemar检验以验证统计显著性。
+> GAIA 官方 53 题已做 McNemar 检验：p=1.0，差异不显著。b=6（PECS对ReAct错）、c=5（PECS错ReAct对），多智能体在知识检索类任务上相对单 Agent 没有显著优势。PECS 的价值集中在计算类任务（内置 33 题 +12.1pp，启发式 0-token 秒杀）和规则打破类任务（WebShop +25pp，打破 search 循环）。
 
 ### 多框架统一对照实验
 
@@ -320,7 +329,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 | 批量任务执行 | `python demos/demo_batch_task.py` | 3 种批量执行方式：自定义列表/GAIA Mock/WebShop Mock | 是 |
 | 自定义 Critic 扩展 | `python demos/custom_critic_override_demo.py` | 继承原生 Critic 增加效率评分维度，注入 LangGraph 图 | 是 |
 
-> 面试现场演示推荐从 `quickstart_no_api.py` 开始（零配置即可运行），再展示 `security_sandbox_demo.py`（安全设计亮点）。
+> 现场演示推荐从 `quickstart_no_api.py` 开始（零配置即可运行），再展示 `security_sandbox_demo.py`（安全设计亮点）。
 
 ## 高级功能
 

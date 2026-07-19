@@ -1,6 +1,6 @@
 # WebShop 真实环境 — 完整执行手册（从 clone 后到测出 +pp）
 
-> 适用：你 Windows 本机，已把 `princeton-nlp/webshop` clone 到 `D:\简历\pecs-multi-agent\webshop`。
+> 适用：你 Windows 本机，已把 `princeton-nlp/webshop` clone 到 `pecs-multi-agent/webshop`。
 > 全程用 **Git Bash**（不要用 CMD，CMD 没有 grep/findstr/curl）。
 > 结论前置：gym 环境 id 已确认 = `WebAgentTextEnv-v0`，`tools/webshop_server.py` 已匹配，**桥代码不用改**。
 
@@ -21,7 +21,7 @@ python --version        # 看你常用 Python 是哪个版本
 ## Step 2 — 建 conda 环境（Python 3.8）
 
 ```bash
-cd /d/简历/pecs-multi-agent/webshop
+cd pecs-multi-agent/webshop
 conda create -n webshop python=3.8.13 -y
 conda activate webshop
 python --version        # 应是 3.8.13
@@ -54,7 +54,7 @@ ls -la search_engine/   # 应有构建好的索引目录
 ```bash
 # 仍在 webshop 目录，conda 已激活
 pip install flask
-cp /d/简历/pecs-multi-agent/tools/webshop_server.py ./
+cp ../tools/webshop_server.py ./
 python webshop_server.py --port 8000 --num-products 1000
 ```
 
@@ -78,7 +78,7 @@ export LLM_API_KEY=[REDACTED-LINGSHU-KEY]
 export LLM_BASE_URL=https://www.lingshucode.com/v1
 export LLM_MODEL=glm-5.2
 
-cd /d/简历/pecs-multi-agent
+cd pecs-multi-agent
 python run_resumable.py webshop_001
 ```
 
@@ -131,7 +131,7 @@ python run_resumable.py webshop_001   # 走本地 8 商品 mock，不依赖 WebS
 
 | 现象 | 原因 | 快修 |
 |---|---|---|
-| `setup.sh` 找不到 | 不在 webshop 目录 | `cd /d/简历/pecs-multi-agent/webshop` |
+| `setup.sh` 找不到 | 不在 webshop 目录 | `cd pecs-multi-agent/webshop` |
 | Google Drive 数据下不动 | 国内墙 | 浏览器手动下 `items_*.json` 放 `data/` 重跑 |
 | Java 报错 | 没 JAVA_HOME 或版本不对 | 装 JDK 8/11 + `export JAVA_HOME=...` |
 | `env init failed` | gym 参数差异（极少） | 贴日志给我调 `_make_env` |

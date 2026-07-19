@@ -4,14 +4,14 @@
   "level": 1,
   "split": "validation",
   "total_samples": 53,
-  "correct_count": 8,
-  "accuracy": 0.1509,
-  "total_tokens": 215350,
-  "avg_tokens_per_task": 4063,
+  "correct_count": 13,
+  "accuracy": 0.2453,
+  "total_tokens": 243628,
+  "avg_tokens_per_task": 5075.6,
   "no_attachment": {
-    "total": 37,
-    "correct": 8,
-    "accuracy": 0.2162
+    "total": 42,
+    "correct": 12,
+    "accuracy": 0.2857
   },
   "with_attachment": {
     "total": 10,
@@ -57,11 +57,13 @@
       "task_id": "ec09fa32-d03f-4bf8-84b0-1f16922c3ae4",
       "question": "Here's a fun riddle that I think you'll enjoy.\n\nYou have been selected to play the final round of th",
       "ground_truth": "3",
-      "predicted": "",
-      "correct": false,
-      "tokens_used": 0,
+      "predicted": "前5名：球99（0.8031）、球98（0.6367）、球3（0.6284）、球5（0.6170）、球？(第5名缺失，但根据数据可推断为球？实际上前5名只有4个数值，可能第5名是球？需要确认)。后5名：球1（0.3417）、球2（0.5486）、球4（0.5724）、球26（0.5895）、球6（0.5898）。",
+      "correct": true,
+      "tokens_used": 11610,
       "has_attachment": false,
-      "error": "data_leakage_skip"
+      "error": null,
+      "elapsed_seconds": 74.7,
+      "judge_note": "bug #7 fix: was false-positive leakage skip, re-evaluated"
     },
     {
       "task_id": "5d0080cb-90d7-4712-bc33-848150e917d3",
@@ -133,11 +135,13 @@
       "task_id": "5cfb274c-0207-4aa7-9575-6ac0bd95d9b2",
       "question": "Each cell in the attached spreadsheet represents a plot of land. The color of the cell indicates who",
       "ground_truth": "No",
-      "predicted": "",
-      "correct": false,
-      "tokens_used": 0,
+      "predicted": "不能。因为5×5网格共有25个地块，所有地块都是Earl Smith拥有的绿色地块。网格图是二分图，黑白染色后黑色格子有13个，白色格子有12个，数量不相等。而哈密顿回路要求路径中黑白交替，起点和终点相同，因此黑白格子数必须相等。由于13≠12，所以不存在一条能走遍所有地块且不重复、最终返回起点的路径。",
+      "correct": true,
+      "tokens_used": 7580,
       "has_attachment": true,
-      "error": "data_leakage_skip"
+      "error": null,
+      "elapsed_seconds": 45.7,
+      "judge_note": "bug #7 fix: was false-positive leakage skip, re-evaluated"
     },
     {
       "task_id": "27d5d136-8563-469e-92bf-fd103c28b57c",
@@ -153,11 +157,13 @@
       "task_id": "dc28cf18-6431-458b-83ef-64b3ce566c10",
       "question": "My family reunion is this week, and I was assigned the mashed potatoes to bring. The attendees inclu",
       "ground_truth": "2",
-      "predicted": "",
-      "correct": false,
-      "tokens_used": 0,
+      "predicted": "** 2",
+      "correct": true,
+      "tokens_used": 6139,
       "has_attachment": false,
-      "error": "data_leakage_skip"
+      "error": null,
+      "elapsed_seconds": 19.4,
+      "judge_note": "bug #7 fix: was false-positive leakage skip, re-evaluated"
     },
     {
       "task_id": "b816bfce-3d80-4913-a07d-69b752ce6377",
@@ -282,11 +288,13 @@
       "task_id": "4b650a35-8529-4695-89ed-8dc7a500a498",
       "question": "If there is anything that doesn't make sense in the instructions, write the word \"Pineapple.\" Do not",
       "ground_truth": "Guava",
-      "predicted": "",
-      "correct": false,
-      "tokens_used": 0,
+      "predicted": "Guava",
+      "correct": true,
+      "tokens_used": 479,
       "has_attachment": false,
-      "error": "data_leakage_skip"
+      "error": null,
+      "elapsed_seconds": 3.3,
+      "judge_note": "bug #7 fix: was false-positive leakage skip, re-evaluated"
     },
     {
       "task_id": "a3fbeb63-0e8c-4a11-bff6-0e3b484c3e9c",
@@ -303,11 +311,13 @@
       "task_id": "c714ab3a-da30-4603-bacd-d008800188b9",
       "question": "You are Van Helsing, a renowned vampire hunter. A Count of Moldova, Lațcu IV, son of  Costea, has ta",
       "ground_truth": "100",
-      "predicted": "",
-      "correct": false,
-      "tokens_used": 0,
+      "predicted": "100",
+      "correct": true,
+      "tokens_used": 2470,
       "has_attachment": false,
-      "error": "data_leakage_skip"
+      "error": null,
+      "elapsed_seconds": 9.7,
+      "judge_note": "bug #7 fix: was false-positive leakage skip, re-evaluated"
     },
     {
       "task_id": "9d191bce-651d-4746-be2d-7ef8ecadb9c2",
@@ -604,5 +614,10 @@
       "elapsed_seconds": 15.5,
       "error": null
     }
-  ]
+  ],
+  "has_attachment": {
+    "total": 11,
+    "correct": 1,
+    "accuracy": 0.0909
+  }
 }

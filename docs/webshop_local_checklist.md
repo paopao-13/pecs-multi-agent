@@ -28,7 +28,7 @@
 ## Step 1：克隆 WebShop 源码（已做过可跳过）
 
 ```bash
-cd D:\简历\pecs-multi-agent
+cd pecs-multi-agent
 git clone --depth 1 https://github.com/princeton-nlp/webshop.git webshop
 cd webshop && git rev-parse --short HEAD && echo "CLONE_OK"
 ```
@@ -39,7 +39,7 @@ cd webshop && git rev-parse --short HEAD && echo "CLONE_OK"
 ## Step 2：创建 conda 环境
 
 ```bash
-cd D:\简历\pecs-multi-agent\webshop
+cd pecs-multi-agent\webshop
 conda create -n webshop python=3.8.13 -y
 conda activate webshop
 ```
@@ -73,10 +73,10 @@ export HF_ENDPOINT=https://hf-mirror.com
 
 # 下载 zhangdw/webshop 数据集到任意临时目录
 huggingface-cli download --repo-type dataset zhangdw/webshop \
-    --local-dir D:\简历\pecs-multi-agent\webshop\_hfdata
+    --local-dir pecs-multi-agent\webshop\_hfdata
 
 # 取出 small 数据包并解压到 webshop/data/
-cd D:\简历\pecs-multi-agent\webshop
+cd pecs-multi-agent\webshop
 mkdir -p data
 tar -xzf _hfdata/raw/webshop-small.tar.gz -C data/
 ls data/      # 应看到 items_shuffle_1000.json  items_ins_v2_1000.json  items_human_ins.json
@@ -92,9 +92,9 @@ ls data/      # 应看到 items_shuffle_1000.json  items_ins_v2_1000.json  items
 > 搜索后端补丁已在 `web_agent_site/engine/bm25_search.py` + `engine.py` 里，无需再改。
 
 ```bash
-cd D:\简历\pecs-multi-agent\webshop
+cd pecs-multi-agent\webshop
 conda activate webshop
-cp D:/简历/pecs-multi-agent/tools/webshop_server.py ./
+cp pecs-multi-agent/tools/webshop_server.py ./
 python webshop_server.py --port 8000 --num-products 1000
 ```
 - 看到 `* Running on http://0.0.0.0:8000` 即桥起。
@@ -117,7 +117,7 @@ export LLM_API_KEY=[REDACTED-LINGSHU-KEY]
 export LLM_BASE_URL=https://www.lingshucode.com/v1
 export LLM_MODEL=glm-5.2
 
-cd D:\简历\pecs-multi-agent
+cd pecs-multi-agent
 python run_resumable.py webshop_001
 ```
 - 日志出现 `WebShop 交互完成（共 N 步, 奖励=X.XXX）` = 走真实环境成功。
@@ -156,5 +156,5 @@ python run_resumable.py webshop_001   # 走本地 8 商品 mock
 | curl localhost:8000 无响应 | 桥没起 | 确认 Step 5 进程在跑、看它报错 |
 | PECS "连接被拒绝" | 端口错 | 确认 `localhost:8000` 非 `:3000` |
 
-## 求职诚实标注提醒
+## 诚实标注提醒
 作品集须注明：**搜索后端用 `rank_bm25`（纯 Python）替代原版 pyserini/Lucene，功能等价（同属 BM25 排序族），仅命中顺序略有差异，以兼容 Windows 本地部署**。这是工程等价替代，不是缩水。
