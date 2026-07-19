@@ -141,7 +141,7 @@ sequenceDiagram
 > 评测样本：GAIA 33题（16大数计算 + 10知识检索 + 4文件解析 + 3网页浏览），WebShop 12题（WebShop-small 数据集真实采样,rank_bm25 搜索后端,真实 AgentBench 文本环境）。
 > ReAct 基线使用同一 DeepSeek-chat 模型 + 同一工具集 + 同一题目，保证对比公平性。
 > 完整评测数据见 `results/target_report.json`（GAIA）与 `results/webshop_run.json`（WebShop 真实环境）。
-> 测试实践与 TDD 发现的 7 个 bug 记录见 [docs/testing.md](docs/testing.md)。
+> 测试实践与 TDD 发现的 7 个 bug 记录见 [docs/archive/testing.md](docs/archive/testing.md)。
 
 **GAIA 逐任务对比**：
 
@@ -247,6 +247,26 @@ Critic 在评测中拦截了多类错误，以下是两个典型案例：
 
 > 自动统计脚本：`python -m metrics.error_stat`，统计Critic拦截错误总量、分类、修正成功率
 
+## 运行入口（Quick Start）
+
+框架提供三个清晰的主入口，覆盖演示、评测与生产级运行：
+
+```bash
+# 1. Web 可视化演示（看四角色协作全过程）
+python scripts/app.py
+# 打开 http://127.0.0.1:5000 —— 任务执行 / GAIA 评估 / 对比测试 三个 Tab
+
+# 2. WebShop 真实环境评测（AgentBench 文本环境）
+python run_webshop.py --tasks 12
+# 详见 docs/webshop_local_runbook.md（rank_bm25 搜索后端 + HTTP 桥部署）
+
+# 3. 可恢复驱动运行（断点续跑，生产级稳定性）
+python run_resumable.py "你的任务描述"
+```
+
+> 零配置可跑：`python demos/quickstart_no_api.py`（启发式兜底 + Python 沙箱，无需 API Key）。
+> 精确复现评测：`pip install -r requirements-lock.txt` 后按上方入口运行。
+
 ## 运行环境
 
 - Python ≥ 3.10（需要 match/case 和 TypedDict）
@@ -280,7 +300,7 @@ cp .env.example .env
 ## 启动
 
 ```bash
-python app.py
+python scripts/app.py
 ```
 
 然后打开 http://127.0.0.1:5000，有三个 Tab：
@@ -365,7 +385,6 @@ python demos/custom_critic_override_demo.py
 
 ```
 pecs-multi-agent/
-├── app.py                 # Flask Web 入口
 ├── config.py              # 全局配置（代码级默认值）
 ├── requirements.txt       # 依赖
 ├── .env.example           # 环境变量示例
@@ -438,7 +457,8 @@ pecs-multi-agent/
 │   ├── demo_batch_task.py          # 批量任务示例
 │   └── custom_critic_override_demo.py  # 自定义Critic示例
 │
-├── scripts/               # 自动化脚本
+├── scripts/               # 自动化脚本与主入口
+│   ├── app.py                    # Flask Web 入口
 │   ├── run_all_ablation.sh       # 一键运行消融实验（6组配置）
 │   ├── run_baseline_compare.sh   # 多框架基线对比
 │   ├── run_real_evaluation.sh    # 真实 API 评测一键脚本（Bash）
@@ -456,7 +476,7 @@ pecs-multi-agent/
 │   ├── TECH_SELECTION.md  # 技术选型决策报告
 │   ├── PERFORMANCE.md     # 性能瓶颈分析
 │   ├── DEPLOYMENT.md      # 生产部署方案
-│   ├── testing.md        # TDD 实践与 bug 发现记录
+│   ├── archive/testing.md # TDD 实践与 bug 发现记录（归档）
 │   ├── API.md             # API接口文档
 │   ├── SECURITY_AUDIT.md  # 安全审计报告
 │   ├── MONITORING.md      # 监控告警方案
@@ -497,7 +517,7 @@ pecs-multi-agent/
 | [docs/TECH_SELECTION.md](docs/TECH_SELECTION.md) | 技术选型决策报告 |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能瓶颈分析 |
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署方案 |
-| [docs/testing.md](docs/testing.md) | TDD 实践与 bug 发现记录 |
+| [docs/archive/testing.md](docs/archive/testing.md) | TDD 实践与 bug 发现记录（归档） |
 | [docs/API.md](docs/API.md) | API接口文档 |
 | [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告 |
 | [docs/MONITORING.md](docs/MONITORING.md) | 监控告警方案 |
