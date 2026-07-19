@@ -82,12 +82,12 @@ def build_heuristic_plan(
     # 仅在「查询中能提取到真实文件路径」时路由，避免无路径误落到默认 data/sample.xlsx。
     # 无路径的模糊文件题（如「解析附件」）回落到 LLM Planner 决定工具与路径。
     file_ext_match = re.search(
-        r"([\w\-./\\]+\.(?:pdf|xlsx?|csv|png|jpe?g|gif|bmp|webp))",
+        r"([a-zA-Z0-9\-./\\ ]+\.(?:pdf|xlsx?|csv|png|jpe?g|gif|bmp|webp))",
         query,
         re.IGNORECASE,
     )
     if file_ext_match:
-        path = file_ext_match.group(1)
+        path = file_ext_match.group(1).strip()
         return {
             "complexity": "medium",
             "steps": [
