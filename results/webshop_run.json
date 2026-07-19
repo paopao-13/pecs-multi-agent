@@ -6,27 +6,27 @@
     "success_rate": 0.25,
     "success_count": 3,
     "total_samples": 12,
-    "avg_tokens_per_task": 2576
+    "avg_tokens_per_task": 2562
   },
   "react_baseline": {
     "rule_layer": "none (pure LLM)",
     "success_rate": 0.0,
     "success_count": 0,
     "total_samples": 12,
-    "avg_tokens_per_task": 5958
+    "avg_tokens_per_task": 7421
   },
   "react_light": {
     "rule_layer": "light (Buy only, no search-loop breaking)",
     "success_rate": 0.0,
     "success_count": 0,
     "total_samples": 12,
-    "avg_tokens_per_task": 6140
+    "avg_tokens_per_task": 7352
   },
   "diff": {
     "pecs_vs_react_pp": 25.0,
     "pecs_vs_light_pp": 25.0,
     "light_vs_react_pp": 0.0,
-    "token_savings_pecs_vs_react_pct": 56.8,
-    "token_savings_pecs_vs_light_pct": 58.0
+    "token_savings_pecs_vs_react_pct": 65.5,
+    "token_savings_pecs_vs_light_pct": 65.2
   }
 }
