@@ -1,19 +1,19 @@
 {
-  "timestamp": "2026-07-20T14:04:04+0800",
+  "timestamp": "2026-07-20T15:24:03+0800",
   "python_version": "3.13.14",
-  "m1_startup_ms": 533.5745811462402,
+  "m1_startup_ms": 1040.9915447235107,
   "m2_health_latency": {
     "samples_total": 100,
     "samples_ok": 100,
     "samples_error": 0,
     "latency_ms": {
-      "avg": 3.6,
-      "min": 1.54,
-      "max": 24.92,
-      "p50": 1.82,
-      "p90": 12.93,
-      "p95": 15.48,
-      "p99": 23.38
+      "avg": 1.63,
+      "min": 0.84,
+      "max": 16.2,
+      "p50": 1.16,
+      "p90": 1.52,
+      "p95": 2.23,
+      "p99": 12.68
     }
   },
   "m3_throughput": {
@@ -23,30 +23,30 @@
         "total_requests": 10,
         "ok_requests": 10,
         "error_requests": 0,
-        "throughput_rps": 608.98,
-        "elapsed_s": 0.016,
-        "latency_p95_ms": 12.22,
-        "latency_p99_ms": 12.31
+        "throughput_rps": 982.34,
+        "elapsed_s": 0.01,
+        "latency_p95_ms": 5.93,
+        "latency_p99_ms": 6.13
       },
       {
         "concurrency": 20,
         "total_requests": 20,
         "ok_requests": 20,
         "error_requests": 0,
-        "throughput_rps": 791.46,
-        "elapsed_s": 0.025,
-        "latency_p95_ms": 17.96,
-        "latency_p99_ms": 18.0
+        "throughput_rps": 1123.5,
+        "elapsed_s": 0.018,
+        "latency_p95_ms": 10.41,
+        "latency_p99_ms": 10.65
       },
       {
         "concurrency": 50,
         "total_requests": 50,
         "ok_requests": 50,
         "error_requests": 0,
-        "throughput_rps": 728.21,
-        "elapsed_s": 0.069,
-        "latency_p95_ms": 49.02,
-        "latency_p99_ms": 49.65
+        "throughput_rps": 1027.51,
+        "elapsed_s": 0.049,
+        "latency_p95_ms": 29.41,
+        "latency_p99_ms": 29.66
       }
     ]
   },
@@ -55,13 +55,15 @@
     {
       "query": "1+1等于几？",
       "status_code": 200,
-      "latency_ms": 5013.5,
+      "latency_ms": 6421.45,
+      "token_used": 694,
       "error": null
     },
     {
       "query": "Python 中如何反转一个列表？",
       "status_code": 200,
-      "latency_ms": 5919.16,
+      "latency_ms": 5859.75,
+      "token_used": 694,
       "error": null
     }
   ],
@@ -69,18 +71,18 @@
     "empty_query": {
       "status_code": 400,
       "returned_400": true,
-      "latency_ms": 2.51,
+      "latency_ms": 2.45,
       "error": "HTTP 400"
     },
     "long_query_10k": {
       "status_code": 200,
-      "latency_ms": 8760.51,
+      "latency_ms": 8201.65,
       "error": null
     },
     "missing_field": {
       "status_code": 422,
       "returned_422": true,
-      "latency_ms": 23.99,
+      "latency_ms": 2.05,
       "error": "HTTP 422"
     },
     "verified_isolated": true
@@ -92,13 +94,59 @@
     "error_checks": 0,
     "uptime_percent": 100.0,
     "avg_interval_ms": 206.9,
-    "max_latency_ms": 28
+    "max_latency_ms": 27
   },
   "m8_health_under_load": {
     "concurrent_health_under_load": 20,
     "ok": 20,
     "errors": 0,
-    "p95_latency_ms": 21.24,
+    "p95_latency_ms": 11.84,
     "health_blocked_during_llm": false
+  },
+  "m5_tokens": {
+    "tasks_measured": 2,
+    "tokens_seen": 1388,
+    "avg_tokens_per_task": 694.0,
+    "note": "真实 token 数来自 LLM 网关 usage_metadata"
+  },
+  "m_cost": {
+    "total_tokens": 2089,
+    "price_per_1m_cny": 1.0,
+    "price_note": "GLM Flash 级别参考单价 ¥1.00/百万 token（可经环境变量 PEC_PRICE_PER_1M 覆盖；token 数为网关真实 usage_metadata，成本据此推算）",
+    "cost_cny": 0.002089,
+    "cost_per_task_cny": 0.000696,
+    "note": "成本 = 真实 token 数 × 参考单价；单价可经 PEC_PRICE_PER_1M 覆盖"
+  },
+  "m_metrics_live": {
+    "latency_by_endpoint_ms": {
+      "health": {
+        "p50": 0.0,
+        "p95": 0.01,
+        "p99": 0.01,
+        "avg": 0.01,
+        "samples": 346
+      },
+      "metrics": {
+        "p50": 0.04,
+        "p95": 0.04,
+        "p99": 0.04,
+        "avg": 0.04,
+        "samples": 1
+      },
+      "run_task": {
+        "p50": 5857.81,
+        "p95": 6419.17,
+        "p99": 6419.17,
+        "avg": 5603.76,
+        "samples": 3
+      }
+    },
+    "tokens": {
+      "llm_tasks": 3,
+      "total_tokens": 2089,
+      "avg_tokens_per_task": 696.3
+    },
+    "total_requests": 350,
+    "errors": 0
   }
 }

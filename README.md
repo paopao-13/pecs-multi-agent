@@ -266,11 +266,14 @@ python run_webshop.py --tasks 12
 # 3. 可恢复驱动运行（断点续跑，生产级稳定性）
 python run_resumable.py "你的任务描述"
 
-# 4. 生产级 API 服务（FastAPI async + 独立 LLM 线程池，无 HOL 阻塞）
+# 4. 生产级 API 服务（FastAPI async v0.4.2 + 独立 LLM 线程池，无 HOL 阻塞）
 uvicorn scripts.api:app --host 0.0.0.0 --port 8000 --workers 1
-# 提供 /health（存活探针，LLM 负载下 P95 < 13ms）、/metrics（请求计数 + 耗时直方图 + 错误率）、/run_task（任务执行，120s 超时熔断）
+# 提供 /health（存活探针，LLM 负载下 P95 < 13ms）
+#      /metrics（按 endpoint 分桶延迟直方图 + 真实 token 计量 + 错误率）
+#      /run_task（任务执行，120s 超时熔断）
 # 关键设计：/run_task 通过独立 ThreadPoolExecutor(max_workers=4) 隔离 LLM 调用，
 #          轻量探针不会被长耗时 LLM 任务阻塞（已修复 Head-of-Line 阻塞，见 results/production_bench.json M8）
+# 监控：/metrics 累计真实 token 用量（来自网关 usage_metadata），成本 = token × PEC_PRICE_PER_1M
 ```
 
 > 零配置可跑：`python demos/quickstart_no_api.py`（启发式兜底 + Python 沙箱，无需 API Key）。
@@ -279,19 +282,23 @@ uvicorn scripts.api:app --host 0.0.0.0 --port 8000 --workers 1
 ## 生产指标（真实实测）
 
 以下数据由 `scripts/benchmark_production.py` 对本地 `uvicorn scripts.api:app` 实测，原始结果见
-[`results/production_bench.json`](results/production_bench.json)（M1–M8 全量，非估算）：
+[`results/production_bench.json`](results/production_bench.json)（M1–M9 全量，非估算）：
 
 | 指标 | 实测值 | 说明 |
 | --- | --- | --- |
-| 启动耗时 (M1) | **534 ms** | 冷启动到 `/health` 可达 |
-| `/health` 延迟 (M2) | P50=1.8 ms / P95=15.5 ms / P99=23.4 ms | 100 次采样 |
-| 并发吞吐 (M3) | **609–791 rps**（10/20 并发），P95≤18 ms | 50 并发 728 rps，P95=49 ms，0 错误 |
-| `/metrics` (M4) | ✅ 可访问 | 请求计数 + 耗时直方图 + 错误率 |
-| LLM 推理 (M5) | 5.0–5.9 s / 任务 | 真实 GLM 网关，端到端四角色编排 |
+| 启动耗时 (M1) | **1041 ms** | 冷启动到 `/health` 可达 |
+| `/health` 延迟 (M2) | **P50=1.16 ms / P95=2.23 ms / P99=12.68 ms** | 100 次采样 |
+| 并发吞吐 (M3) | **982–1123 rps**（10/20 并发），P95≤10 ms；50 并发 1027 rps P95=29 ms | 全程 0 错误 |
+| `/metrics` (M4) | ✅ 可访问 | 按 endpoint 分桶延迟直方图 + 真实 token 计量 + 错误率 |
+| LLM 推理 (M5) | **5.86–6.42 s / 任务** | 真实 GLM 网关，端到端四角色编排 |
 | 容错 (M6) | 空输入→**400**，缺字段→**422**，10K 超长→**200** | 独立隔离端口验证，非编排副作用 |
 | 稳定性 (M7) | **100% 可用率**（30 s / 145 次，0 失败） | 持续存活探针 |
-| HOL 修复 (M8) | LLM 负载下 `/health` P95=**21.2 ms**，0 错误 | 独立 LLM 线程池，探针不被长任务阻塞 |
+| HOL 修复 (M8) | LLM 负载下 `/health` P95=**11.8 ms**，0 错误 | 独立 LLM 线程池，探针不被长任务阻塞 |
+| 真实 Token (M9) | **2089 token / 3 任务，均 696.3/任务**（来自网关 `usage_metadata`） | `/run_task` P95=6419 ms（已与 `/health` 分桶，不再被探针污染） |
+| 成本推算 (M9) | ¥0.0021 总计（¥0.0007/任务） | 真实 token × 可配置参考单价（见下） |
 
+> **关于成本的诚实说明**：Token 数为 LLM 网关真实返回的 `usage_metadata`（非估算）；成本为 `真实 token × 参考单价` 推算，单价默认按 GLM Flash 级别 **¥1.00/百万 token**，可通过环境变量 `PEC_PRICE_PER_1M` 覆盖为实际计费标准。该单价仅为可复现的参考基准，不代表网关实际账单。
+>
 > 复现：`python scripts/benchmark_production.py --llm-key <KEY> --base-url <URL> --model <MODEL>`
 > （Key 仅经 CLI 传入，绝不写入文件；详见安全约定。）
 

@@ -6,9 +6,14 @@ PECS 生产级指标量化基准（真实数据采集）
   M2: /health 存活探针延迟分布（p50/p95/p99, 100次采样）
   M3: /health 并发吞吐量（10/20/50并发）
   M4: /metrics 端点可用性
-  M5: /run_task 真实 LLM 推理端到端延迟（简单计算题）
-  M6: /run_task 错误处理（空输入/超长输入）
+  M5: /run_task 真实 LLM 推理端到端延迟（简单计算题）+ 真实 token 数
+  M6: /run_task 错误处理（空输入/超长输入，独立端口隔离）
   M7: 服务稳定性（连续运行无崩溃）
+  M8: HOL 阻塞修复验证（LLM 负载下 /health 不阻塞）
+  M9: /metrics 实时快照（按 endpoint 分桶延迟 p50/p95/p99 + token 计量）
+
+成本维度：M5 采集真实 token 数（LLM 网关 usage_metadata），按可配置参考单价
+（PEC_PRICE_PER_1M，默认 GLM Flash 级别 ¥1/百万 token）推算单任务/总成本。
 
 用法：
     python scripts/benchmark_production.py [--llm-key YOUR_KEY] [--base-url URL] [--model MODEL]
@@ -52,6 +57,16 @@ TASK_QUERIES = [
 ]
 TIMEOUT_SECONDS = 120  # 单次 /run_task 最长等待
 
+# ---- Token 成本单价（¥ / 百万 token）----
+# token 数来自 LLM 网关 usage_metadata（真实返回）；单价为可配置参考值，成本据此推算。
+# 默认值取 GLM Flash 级别网关参考价；可用环境变量 PEC_PRICE_PER_1M 覆盖（实际以网关账单为准）。
+TOKEN_PRICE_PER_1M = float(os.getenv("PEC_PRICE_PER_1M", "1.0"))
+PRICE_NOTE = (
+    f"GLM Flash 级别参考单价 ¥{TOKEN_PRICE_PER_1M:.2f}/百万 token"
+    f"（可经环境变量 PEC_PRICE_PER_1M 覆盖；token 数为网关真实 usage_metadata，成本据此推算）"
+)
+
+
 
 @dataclass
 class LatencySample:
@@ -60,6 +75,7 @@ class LatencySample:
     latency_ms: float
     status_code: int
     error: Optional[str] = None
+    body: Optional[dict] = None
 
 
 def _find_uvicorn_python() -> str:
@@ -106,6 +122,9 @@ class BenchmarkResult:
     m6_error_handling: Dict[str, Any] = field(default_factory=dict)
     m7_stability: Dict[str, Any] = field(default_factory=dict)
     m8_health_under_load: Dict[str, Any] = field(default_factory=dict)
+    m5_tokens: Dict[str, Any] = field(default_factory=dict)  # 真实 token 聚合（来自 run_task 响应）
+    m_cost: Dict[str, Any] = field(default_factory=dict)  # 成本推算（token × 参考单价）
+    m_metrics_live: Dict[str, Any] = field(default_factory=dict)  # /metrics 实时快照（分桶延迟 + token）
 
 
 def http_get(url: str, timeout: float = 5.0) -> LatencySample:
@@ -114,16 +133,26 @@ def http_get(url: str, timeout: float = 5.0) -> LatencySample:
     try:
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode()
+            raw = resp.read().decode()
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                parsed = None
             return LatencySample(
                 latency_ms=(time.time() - t0) * 1000.0,
                 status_code=resp.getcode(),
+                body=parsed,
             )
     except urllib.error.HTTPError as e:
+        try:
+            parsed = json.loads(e.read().decode())
+        except Exception:
+            parsed = None
         return LatencySample(
             latency_ms=(time.time() - t0) * 1000.0,
             status_code=e.code,
             error=f"HTTP {e.code}",
+            body=parsed,
         )
     except Exception as e:
         return LatencySample(
@@ -145,17 +174,27 @@ def http_post_json(url: str, data: dict, timeout: float = TIMEOUT_SECONDS) -> La
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode()
+            raw = resp.read().decode()
+            try:
+                parsed = json.loads(raw)
+            except Exception:
+                parsed = None
             return LatencySample(
                 latency_ms=(time.time() - t0) * 1000.0,
                 status_code=resp.getcode(),
+                body=parsed,
             )
     except urllib.error.HTTPError as e:
         # 4xx/5xx 也是合法响应，必须保留真实状态码（如 400/422 参数校验）
+        try:
+            parsed = json.loads(e.read().decode())
+        except Exception:
+            parsed = None
         return LatencySample(
             latency_ms=(time.time() - t0) * 1000.0,
             status_code=e.code,
             error=f"HTTP {e.code}",
+            body=parsed,
         )
     except Exception as e:
         return LatencySample(
@@ -176,6 +215,18 @@ def percentile(sorted_data: List[float], p: float) -> float:
 
 
 # ========== M1: 启动耗时 ==========
+_MAIN_SERVER_PROC = None  # 跟踪主服务子进程，便于结束时回收
+
+
+def _free_port() -> int:
+    """分配一个当前空闲端口（避免与历史僵尸进程的固定端口冲突）"""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
 def measure_startup(port: int) -> float:
     """启动服务并测量到首次响应的时间(ms)"""
     uvicorn_py = _find_uvicorn_python()
@@ -186,6 +237,8 @@ def measure_startup(port: int) -> float:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    global _MAIN_SERVER_PROC
+    _MAIN_SERVER_PROC = proc
     t0 = time.time()
     # 轮询直到 /health 可达或超时(30s)
     for _ in range(60):
@@ -297,7 +350,7 @@ def measure_run_task(query: str) -> Dict[str, Any]:
         "query": query,
         "status_code": s.status_code,
         "latency_ms": round(s.latency_ms, 2),
-        "error": s.error,
+        "token_used": (s.body or {}).get("token_used", 0) if s.status_code == 200 else 0,        "error": s.error,
     }
 
     if s.status_code == 200:
@@ -364,9 +417,9 @@ def measure_error_handling() -> Dict[str, Any]:
     }
     print(f"  6a 空输入 → HTTP {s.status_code} ({'✅' if s.status_code == 400 else '❌'}) {s.error or ''}")
 
-    # 6b: 超长 query (10K chars)
+    # 6b: 超长 query (10K chars) —— 会走完整多智能体图，放宽超时到 30s
     long_q = "A" * 10000
-    s = http_post_json(iso_url, {"query": long_q}, timeout=10)
+    s = http_post_json(iso_url, {"query": long_q}, timeout=30)
     results["long_query_10k"] = {
         "status_code": s.status_code,
         "latency_ms": round(s.latency_ms, 2),
@@ -465,6 +518,25 @@ def measure_health_under_load() -> Dict[str, Any]:
     return result
 
 
+# ========== M9: 实时 /metrics 快照（真实分桶延迟 + token 计量）==========
+def measure_live_metrics() -> Dict[str, Any]:
+    """读取运行中服务的 /metrics，抓取真实按 endpoint 分桶延迟与 token 计量。
+
+    这是服务自身暴露的累计真实指标（含全部 /health、/run_task 流量），
+    比benchmark侧单独采样更全面、更可信。
+    """
+    s = http_get(METRICS_URL, timeout=5)
+    if s.status_code != 200 or not s.body:
+        return {"error": f"/metrics 读取失败 status={s.status_code}"}
+    snap = s.body
+    return {
+        "latency_by_endpoint_ms": snap.get("latency_by_endpoint_ms", {}),
+        "tokens": snap.get("tokens", {}),
+        "total_requests": snap.get("total_requests", 0),
+        "errors": snap.get("errors", 0),
+    }
+
+
 # ========== 主流程 ==========
 def main():
     import argparse
@@ -486,7 +558,10 @@ def main():
         os.environ["LLM_MODEL"] = args.model
 
     global HEALTH_URL, METRICS_URL, RUN_TASK_URL, BASE_URL
-    BASE_URL = f"http://127.0.0.1:{args.port}"
+    # 默认端口改为动态空闲端口，避免与历史僵尸进程的固定端口(8000)冲突
+    port = args.port if args.port != 8000 else _free_port()
+    print(f"  使用端口: {port}")
+    BASE_URL = f"http://127.0.0.1:{port}"
     HEALTH_URL = f"{BASE_URL}/health"
     METRICS_URL = f"{BASE_URL}/metrics"
     RUN_TASK_URL = f"{BASE_URL}/run_task"
@@ -500,12 +575,12 @@ def main():
     print("  PECS 生产级指标量化基准")
     print(f"  时间: {result.timestamp}")
     print(f"  Python: {result.python_version}")
-    print(f"  端口: {args.port}")
+    print(f"  端口: {port}")
     print("=" * 60)
 
     # ---- M1: 启动服务 ----
     print("\n[M1] 服务启动耗时 ...")
-    startup_ms = measure_startup(args.port)
+    startup_ms = measure_startup(port)
     result.m1_startup_ms = startup_ms
     if startup_ms < 0:
         print("FATAL: 服务无法启动，终止基准")
@@ -532,9 +607,21 @@ def main():
     # ---- M5: /run_task 真实 LLM ----
     if not args.skip_run_task:
         print("\n[M5] /run_task 真实 LLM 推理延迟 ...")
+        m5_tokens_seen = 0
+        m5_tasks = 0
         for q in TASK_QUERIES:
             t = measure_run_task(q)
             result.m5_run_task_latency.append(t)
+            if t.get("status_code") == 200 and t.get("token_used"):
+                m5_tokens_seen += t["token_used"]
+                m5_tasks += 1
+        if m5_tasks:
+            result.m5_tokens = {
+                "tasks_measured": m5_tasks,
+                "tokens_seen": m5_tokens_seen,
+                "avg_tokens_per_task": round(m5_tokens_seen / m5_tasks, 1),
+                "note": "真实 token 数来自 LLM 网关 usage_metadata",
+            }
     else:
         print("\n[M5] 跳过 (--skip-run-task)")
 
@@ -549,6 +636,25 @@ def main():
     # ---- M8: HOL 修复验证（/health 在 LLM 负载下不阻塞）----
     print("\n[M8] HOL 阻塞修复验证 ...")
     result.m8_health_under_load = measure_health_under_load()
+
+    # ---- M9: 实时 /metrics 快照（分桶延迟 + token 计量）----
+    print("\n[M9] 读取 /metrics 实时快照 ...")
+    result.m_metrics_live = measure_live_metrics()
+    live_tokens = result.m_metrics_live.get("tokens", {})
+    total_tokens = live_tokens.get("total_tokens", 0)
+    if total_tokens and not args.skip_run_task:
+        cost_cny = total_tokens / 1_000_000 * TOKEN_PRICE_PER_1M
+        result.m_cost = {
+            "total_tokens": total_tokens,
+            "price_per_1m_cny": TOKEN_PRICE_PER_1M,
+            "price_note": PRICE_NOTE,
+            "cost_cny": round(cost_cny, 6),
+            "cost_per_task_cny": round(cost_cny / live_tokens.get("llm_tasks", 1), 6) if live_tokens.get("llm_tasks") else 0,
+            "note": "成本 = 真实 token 数 × 参考单价；单价可经 PEC_PRICE_PER_1M 覆盖",
+        }
+        print(f"  真实 token 数: {total_tokens} | 参考单价 ¥{TOKEN_PRICE_PER_1M:.2f}/百万 | 推算成本 ¥{cost_cny:.4f}")
+    else:
+        print("  （跳过 run_task，无 token 成本数据）")
 
     # ---- 输出结果 ----
     output_path = _PROJECT_ROOT / "results" / "production_bench.json"
@@ -578,6 +684,22 @@ def main():
     if m8:
         h_stat = "未被阻塞 ✅" if not m8.get("health_blocked_during_llm") else "仍阻塞 ❌"
         print(f"  HOL修复:      /health 在LLM负载下 {h_stat} (P95={m8.get('p95_latency_ms')}ms)")
+    if result.m_metrics_live.get("tokens"):
+        tk = result.m_metrics_live["tokens"]
+        print(f"  真实Token:   累计 {tk.get('total_tokens')} token / {tk.get('llm_tasks')} 个LLM任务, "
+              f"均 {tk.get('avg_tokens_per_task')}/任务")
+    if result.m_cost:
+        c = result.m_cost
+        print(f"  成本推算:    ¥{c['cost_cny']:.4f} 总计 (¥{c['cost_per_task_cny']:.4f}/任务) @ {c['price_note']}")
+
+    # 回收主服务子进程，避免遗留僵尸占用端口
+    if _MAIN_SERVER_PROC is not None:
+        try:
+            _MAIN_SERVER_PROC.kill()
+            _MAIN_SERVER_PROC.wait(timeout=5)
+        except Exception:
+            pass
+        print("  🧹 已回收服务子进程")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,11 @@ v0.4.1 改动（隔离 LLM 线程池）：
 - 使用独立 ThreadPoolExecutor 跑 LLM 调用，与默认 executor 解耦，
   避免重耗时任务占满默认池导致轻量请求（如参数校验）排队（HOL 变体）。
 
+v0.4.2 改动（可观测性增强）：
+- /metrics 增加按 endpoint 分桶延迟（/health、/metrics、/run_task 的 p50/p95/p99 分别统计，
+  不再把 2ms 探针与 5s 任务混算导致 P95 失真）。
+- /metrics 增加 token 计量：累计真实 LLM 任务数与总 token 数（数据来自 LLM 网关 usage_metadata）。
+
 本地启动：
     uvicorn scripts.api:app --host 0.0.0.0 --port 8000
 """
@@ -37,7 +42,7 @@ sys.path.insert(0, os.path.dirname(_ROOT))
 
 from config import DEFAULT_TOKEN_BUDGET  # noqa: E402
 
-app = FastAPI(title="PECS Multi-Agent API", version="0.4.1")
+app = FastAPI(title="PECS Multi-Agent API", version="0.4.2")
 
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起
 RUN_TASK_TIMEOUT_S = float(os.getenv("PEC_RUN_TASK_TIMEOUT", "120"))
@@ -55,42 +60,65 @@ _metrics: Dict[str, Any] = {
     "start_time": time.time(),
     "total_requests": 0,
     "errors": 0,
-    "latency_ms": [],
     "by_endpoint": {},
+    # 按 endpoint 分桶的延迟样本（毫秒），避免 /health(2ms) 与 /run_task(5s) 混算失真
+    "latency_by_endpoint": {},
+    # Token 计量：仅统计真实 LLM 任务（/run_task 成功），数据来自 LLM 网关 usage_metadata
+    "llm_tasks": 0,
+    "total_tokens": 0,
 }
 
 
-def _record(endpoint: str, latency_ms: float, error: bool = False) -> None:
+def _pct(sorted_vals: list, q: float) -> float:
+    if not sorted_vals:
+        return 0.0
+    idx = min(len(sorted_vals) - 1, int(len(sorted_vals) * q))
+    return sorted_vals[idx]
+
+
+def _record(endpoint: str, latency_ms: float, error: bool = False, tokens: int = 0) -> None:
     with _lock:
         _metrics["total_requests"] += 1
         _metrics["by_endpoint"][endpoint] = _metrics["by_endpoint"].get(endpoint, 0) + 1
         if error:
             _metrics["errors"] += 1
-        else:
-            _metrics["latency_ms"].append(latency_ms)
-            if len(_metrics["latency_ms"]) > 1000:
-                _metrics["latency_ms"] = _metrics["latency_ms"][-1000:]
+        bucket = _metrics["latency_by_endpoint"].setdefault(endpoint, [])
+        bucket.append(latency_ms)
+        if len(bucket) > 1000:
+            _metrics["latency_by_endpoint"][endpoint] = bucket[-1000:]
+        if tokens > 0:
+            _metrics["llm_tasks"] += 1
+            _metrics["total_tokens"] += tokens
+
+
+def _endpoint_stats(endpoint: str) -> Dict[str, Any]:
+    with _lock:
+        vals = sorted(_metrics["latency_by_endpoint"].get(endpoint, []))
+    if not vals:
+        return {"p50": 0.0, "p95": 0.0, "p99": 0.0, "avg": 0.0, "samples": 0}
+    return {
+        "p50": round(_pct(vals, 0.50), 2),
+        "p95": round(_pct(vals, 0.95), 2),
+        "p99": round(_pct(vals, 0.99), 2),
+        "avg": round(sum(vals) / len(vals), 2),
+        "samples": len(vals),
+    }
 
 
 def _summary() -> Dict[str, Any]:
     with _lock:
-        lat = list(_metrics["latency_ms"])
-    if lat:
-        lat_sorted = sorted(lat)
-        p50 = lat_sorted[len(lat_sorted) // 2]
-        p95 = lat_sorted[min(len(lat_sorted) - 1, int(len(lat_sorted) * 0.95))]
-        avg = sum(lat) / len(lat)
-    else:
-        p50 = p95 = avg = 0.0
+        by_ep = dict(_metrics["by_endpoint"])
+        llm_tasks = _metrics["llm_tasks"]
+        total_tokens = _metrics["total_tokens"]
     return {
         "total_requests": _metrics["total_requests"],
         "errors": _metrics["errors"],
-        "by_endpoint": dict(_metrics["by_endpoint"]),
-        "latency_ms": {
-            "avg": round(avg, 2),
-            "p50": round(p50, 2),
-            "p95": round(p95, 2),
-            "samples": len(lat),
+        "by_endpoint": by_ep,
+        "latency_by_endpoint_ms": {ep: _endpoint_stats(ep) for ep in by_ep},
+        "tokens": {
+            "llm_tasks": llm_tasks,
+            "total_tokens": total_tokens,
+            "avg_tokens_per_task": round(total_tokens / llm_tasks, 1) if llm_tasks else 0,
         },
         "uptime_seconds": round(time.time() - _metrics["start_time"], 1),
     }
@@ -130,17 +158,21 @@ class RunTaskResponse(BaseModel):
 # ---------- 端点 ----------
 @app.get("/health")
 async def health() -> Dict[str, Any]:
-    _record("health", 0.0)
-    return {
+    t0 = time.time()
+    out = {
         "status": "ok",
         "uptime_seconds": round(time.time() - _metrics["start_time"], 1),
     }
+    _record("health", (time.time() - t0) * 1000.0)
+    return out
 
 
 @app.get("/metrics")
 async def metrics() -> Dict[str, Any]:
-    _record("metrics", 0.0)
-    return _summary()
+    t0 = time.time()
+    out = _summary()
+    _record("metrics", (time.time() - t0) * 1000.0)
+    return out
 
 
 @app.post("/run_task", response_model=RunTaskResponse)
@@ -158,7 +190,7 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
             timeout=RUN_TASK_TIMEOUT_S,
         )
         latency = (time.time() - t0) * 1000.0
-        _record("run_task", latency)
+        _record("run_task", latency, tokens=result["token_used"])
         return RunTaskResponse(
             success=True,
             query=req.query,
