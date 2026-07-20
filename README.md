@@ -276,6 +276,25 @@ uvicorn scripts.api:app --host 0.0.0.0 --port 8000 --workers 1
 > 零配置可跑：`python demos/quickstart_no_api.py`（启发式兜底 + Python 沙箱，无需 API Key）。
 > 精确复现评测：`pip install -r requirements-lock.txt` 后按上方入口运行。
 
+## 生产指标（真实实测）
+
+以下数据由 `scripts/benchmark_production.py` 对本地 `uvicorn scripts.api:app` 实测，原始结果见
+[`results/production_bench.json`](results/production_bench.json)（M1–M8 全量，非估算）：
+
+| 指标 | 实测值 | 说明 |
+| --- | --- | --- |
+| 启动耗时 (M1) | **534 ms** | 冷启动到 `/health` 可达 |
+| `/health` 延迟 (M2) | P50=1.8 ms / P95=15.5 ms / P99=23.4 ms | 100 次采样 |
+| 并发吞吐 (M3) | **609–791 rps**（10/20 并发），P95≤18 ms | 50 并发 728 rps，P95=49 ms，0 错误 |
+| `/metrics` (M4) | ✅ 可访问 | 请求计数 + 耗时直方图 + 错误率 |
+| LLM 推理 (M5) | 5.0–5.9 s / 任务 | 真实 GLM 网关，端到端四角色编排 |
+| 容错 (M6) | 空输入→**400**，缺字段→**422**，10K 超长→**200** | 独立隔离端口验证，非编排副作用 |
+| 稳定性 (M7) | **100% 可用率**（30 s / 145 次，0 失败） | 持续存活探针 |
+| HOL 修复 (M8) | LLM 负载下 `/health` P95=**21.2 ms**，0 错误 | 独立 LLM 线程池，探针不被长任务阻塞 |
+
+> 复现：`python scripts/benchmark_production.py --llm-key <KEY> --base-url <URL> --model <MODEL>`
+> （Key 仅经 CLI 传入，绝不写入文件；详见安全约定。）
+
 ## 运行环境
 
 - Python ≥ 3.10（需要 match/case 和 TypedDict）
