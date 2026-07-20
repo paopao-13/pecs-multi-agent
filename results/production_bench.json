@@ -1,19 +1,19 @@
 {
-  "timestamp": "2026-07-20T15:24:03+0800",
+  "timestamp": "2026-07-20T15:57:45+0800",
   "python_version": "3.13.14",
-  "m1_startup_ms": 1040.9915447235107,
+  "m1_startup_ms": 1577.0056247711182,
   "m2_health_latency": {
     "samples_total": 100,
     "samples_ok": 100,
     "samples_error": 0,
     "latency_ms": {
-      "avg": 1.63,
-      "min": 0.84,
-      "max": 16.2,
-      "p50": 1.16,
-      "p90": 1.52,
-      "p95": 2.23,
-      "p99": 12.68
+      "avg": 1.92,
+      "min": 1.13,
+      "max": 17.05,
+      "p50": 1.62,
+      "p90": 1.99,
+      "p95": 2.28,
+      "p99": 13.32
     }
   },
   "m3_throughput": {
@@ -23,30 +23,30 @@
         "total_requests": 10,
         "ok_requests": 10,
         "error_requests": 0,
-        "throughput_rps": 982.34,
-        "elapsed_s": 0.01,
-        "latency_p95_ms": 5.93,
-        "latency_p99_ms": 6.13
+        "throughput_rps": 831.89,
+        "elapsed_s": 0.012,
+        "latency_p95_ms": 7.67,
+        "latency_p99_ms": 7.73
       },
       {
         "concurrency": 20,
         "total_requests": 20,
         "ok_requests": 20,
         "error_requests": 0,
-        "throughput_rps": 1123.5,
-        "elapsed_s": 0.018,
-        "latency_p95_ms": 10.41,
-        "latency_p99_ms": 10.65
+        "throughput_rps": 619.03,
+        "elapsed_s": 0.032,
+        "latency_p95_ms": 21.01,
+        "latency_p99_ms": 24.35
       },
       {
         "concurrency": 50,
         "total_requests": 50,
         "ok_requests": 50,
         "error_requests": 0,
-        "throughput_rps": 1027.51,
-        "elapsed_s": 0.049,
-        "latency_p95_ms": 29.41,
-        "latency_p99_ms": 29.66
+        "throughput_rps": 817.14,
+        "elapsed_s": 0.061,
+        "latency_p95_ms": 43.26,
+        "latency_p99_ms": 44.29
       }
     ]
   },
@@ -55,52 +55,36 @@
     {
       "query": "1+1等于几？",
       "status_code": 200,
-      "latency_ms": 6421.45,
+      "latency_ms": 7330.94,
       "token_used": 694,
       "error": null
     },
     {
       "query": "Python 中如何反转一个列表？",
       "status_code": 200,
-      "latency_ms": 5859.75,
+      "latency_ms": 6019.49,
       "token_used": 694,
       "error": null
     }
   ],
   "m6_error_handling": {
-    "empty_query": {
-      "status_code": 400,
-      "returned_400": true,
-      "latency_ms": 2.45,
-      "error": "HTTP 400"
-    },
-    "long_query_10k": {
-      "status_code": 200,
-      "latency_ms": 8201.65,
-      "error": null
-    },
-    "missing_field": {
-      "status_code": 422,
-      "returned_422": true,
-      "latency_ms": 2.05,
-      "error": "HTTP 422"
-    },
-    "verified_isolated": true
+    "error": "隔离服务启动失败",
+    "verified_isolated": false
   },
   "m7_stability": {
     "duration_s": 30,
-    "total_checks": 145,
-    "success_checks": 145,
+    "total_checks": 149,
+    "success_checks": 149,
     "error_checks": 0,
     "uptime_percent": 100.0,
-    "avg_interval_ms": 206.9,
-    "max_latency_ms": 27
+    "avg_interval_ms": 201.34,
+    "max_latency_ms": 3
   },
   "m8_health_under_load": {
     "concurrent_health_under_load": 20,
     "ok": 20,
     "errors": 0,
-    "p95_latency_ms": 11.84,
+    "p95_latency_ms": 13.08,
     "health_blocked_during_llm": false
   },
   "m5_tokens": {
@@ -120,24 +104,24 @@
   "m_metrics_live": {
     "latency_by_endpoint_ms": {
       "health": {
-        "p50": 0.0,
+        "p50": 0.01,
         "p95": 0.01,
         "p99": 0.01,
         "avg": 0.01,
-        "samples": 346
+        "samples": 350
       },
       "metrics": {
-        "p50": 0.04,
-        "p95": 0.04,
-        "p99": 0.04,
-        "avg": 0.04,
+        "p50": 0.07,
+        "p95": 0.07,
+        "p99": 0.07,
+        "avg": 0.07,
         "samples": 1
       },
       "run_task": {
-        "p50": 5857.81,
-        "p95": 6419.17,
-        "p99": 6419.17,
-        "avg": 5603.76,
+        "p50": 6017.06,
+        "p95": 7327.72,
+        "p99": 7327.72,
+        "avg": 5964.02,
         "samples": 3
       }
     },
@@ -146,7 +130,16 @@
       "total_tokens": 2089,
       "avg_tokens_per_task": 696.3
     },
-    "total_requests": 350,
+    "total_requests": 354,
     "errors": 0
-  }
+  },
+  "m_prom": {
+    "status_code": 200,
+    "ok": true,
+    "has_requests_total": true,
+    "has_latency_histogram": true,
+    "has_llm_tokens": true,
+    "bytes": 9775
+  },
+  "ci_passed": false
 }
