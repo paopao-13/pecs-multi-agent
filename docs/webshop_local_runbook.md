@@ -172,9 +172,9 @@ python run_webshop.py
 
 - **奖励**：WebShop 奖励 0~1，≥0.5 算宽松通过，=1.0 算严格成功（`benchmarks/webshop_eval.py` 里 `REAL_REWARD_THRESHOLD=0.5` 可调）。
 - **+pp 目标 +18**：`run_webshop.py` 直接算 `多智能体成功率 - ReAct 成功率`。
-- **⚠️ 诚实声明（作品集必写）**：搜索后端用 **`rank_bm25`（纯 Python）** 替代原版 **pyserini/Lucene**，
+- **⚠️ 诚实声明**：搜索后端用 **`rank_bm25`（纯 Python）** 替代原版 **pyserini/Lucene**，
   属**功能等价替代**（同 BM25 排序族），仅命中顺序略有差异，目的是兼容 Windows 本地部署、避开 JNI 坑。
-  这不是缩水，懂行评审者反而认可这个工程取舍。
+  这不是缩水，而是经得起推敲的工程取舍。
 
 ---
 

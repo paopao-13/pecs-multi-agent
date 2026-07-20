@@ -157,4 +157,4 @@ python run_resumable.py webshop_001   # 走本地 8 商品 mock
 | PECS "连接被拒绝" | 端口错 | 确认 `localhost:8000` 非 `:3000` |
 
 ## 诚实标注提醒
-作品集须注明：**搜索后端用 `rank_bm25`（纯 Python）替代原版 pyserini/Lucene，功能等价（同属 BM25 排序族），仅命中顺序略有差异，以兼容 Windows 本地部署**。这是工程等价替代，不是缩水。
+项目须注明：**搜索后端用 `rank_bm25`（纯 Python）替代原版 pyserini/Lucene，功能等价（同属 BM25 排序族），仅命中顺序略有差异，以兼容 Windows 本地部署**。这是工程等价替代，不是缩水。

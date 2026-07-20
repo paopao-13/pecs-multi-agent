@@ -5,6 +5,37 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-0.2.x-orange)
 ![CI](https://github.com/paopao-13/pecs-multi-agent/actions/workflows/ci.yml/badge.svg)
 
+PECS（Plan-Execute-Critic-Synthesize）是一个**多智能体协作框架**：四个角色（规划 / 执行 / 评审 / 综合）基于 LangGraph 编排，面向真实评测环境（GAIA、WebShop）与生产级部署。
+
+## ✨ 特性
+
+- **四角色协作**：Planner 拆解 → Executor 调工具 → Critic 评审 → Synthesizer 综合，可在 GAIA / WebShop 真实环境跑通
+- **真实评测数据**：GAIA 自建子集 100%、官方 53 题 26.4%（诚实披露与基线不显著）；WebShop 真实环境较 ReAct +25pp
+- **生产级 API**：FastAPI async + 独立 LLM 线程池（HOL 修复，探针不被长任务阻塞）+ 启动自检 fail-fast + Prometheus 多进程指标
+- **稳定性工程**：全局令牌桶限流（超限返回 429 而非 500）、混沌注入优雅降级（传输层故障零 500）、可恢复驱动（断点续跑）
+- **可观测与防回归**：Prometheus 指标端点 + CI 服务层门禁（每次 PR 自动挡回归）
+- **安全沙箱**：代码执行 AST 黑名单 + 白名单 `__builtins__` + dunder 属性链拦截 + 超时熔断，四层防护
+
+## 🏗️ 架构概览
+
+```mermaid
+graph TB
+    Client[Client / HTTP] -->|/run_task| API[FastAPI 服务]
+    API --> Health[/health 存活探针<br/>P95 &lt; 13ms]
+    API --> Metrics[/metrics · /metrics/prom<br/>Prometheus 多进程]
+    API -->|独立线程池 x4| Pool[LLM 调用隔离]
+    API -.令牌桶限流.-> Client
+    API -.混沌注入.-> Degrade[优雅降级 零 500]
+    Pool --> Graph[LangGraph 四角色编排]
+    Graph --> P[Planner 规划]
+    Graph --> E[Executor 执行]
+    Graph --> C[Critic 评审]
+    Graph --> S[Synthesizer 综合]
+    E --> Tools[工具集 + 代码沙箱<br/>AST 黑名单/白名单/超时熔断]
+    C -.预算超限.-> E
+    Graph --> Bench[(GAIA / WebShop 真实评测)]
+```
+
 如果想精确复现评测结果，请使用 `pip install -r requirements-lock.txt`。
 
 ## 🚀 5分钟上手
@@ -266,7 +297,7 @@ python run_webshop.py --tasks 12
 # 3. 可恢复驱动运行（断点续跑，生产级稳定性）
 python run_resumable.py "你的任务描述"
 
-# 4. 生产级 API 服务（FastAPI async v0.5.0 + 独立 LLM 线程池 + 启动自检 + Prometheus 多进程指标）
+# 4. 生产级 API 服务（FastAPI async v0.6.0 + 独立 LLM 线程池 + 启动自检 + Prometheus 多进程指标 + 全局限流 + 混沌工程）
 uvicorn scripts.api:app --host 0.0.0.0 --port 8000 --workers 1
 # 提供 /health（存活探针，含 llm_configured 就绪状态；LLM 负载下 P95 < 13ms）
 #      /metrics（JSON：按 endpoint 分桶延迟直方图 + 真实 token 计量 + 错误率；单 worker / 开发态便利端点）
