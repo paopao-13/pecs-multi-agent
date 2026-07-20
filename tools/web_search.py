@@ -8,6 +8,13 @@ Web 搜索工具
 import json
 import urllib.request
 import urllib.parse
+import os
+
+# 可选的真实搜索 API（配置即启用，未配置则回退到 DuckDuckGo）
+# - PEC_SEARCH_PROVIDER: "tavily"（目前支持）或留空
+# - PEC_SEARCH_API_KEY:  对应 provider 的 API Key
+SEARCH_PROVIDER = os.getenv("PEC_SEARCH_PROVIDER", "").lower()
+SEARCH_API_KEY = os.getenv("PEC_SEARCH_API_KEY", "")
 
 
 def web_search(args: dict) -> str:
@@ -32,6 +39,15 @@ def web_search(args: dict) -> str:
     if not mock_result.startswith("[模拟搜索] 未找到"):
         return mock_result
 
+    # 配置了真实搜索 API（如 Tavily）时优先使用，获得更可靠的接地摘要
+    if SEARCH_PROVIDER == "tavily" and SEARCH_API_KEY:
+        try:
+            result = _tavily_search(query, num_results)
+            if result:
+                return result
+        except Exception:
+            pass
+
     # 非 benchmark 查询：尝试真实 DuckDuckGo 搜索（生产环境）
     try:
         result = _ddgs_search(query, num_results)
@@ -50,6 +66,34 @@ def web_search(args: dict) -> str:
 
     # 最后回退到 mock 数据
     return mock_result
+
+
+def _tavily_search(query: str, num_results: int) -> str:
+    """使用 Tavily Search API 进行真实、接地（grounded）的网页搜索。"""
+    url = "https://api.tavily.com/search"
+    payload = json.dumps({
+        "api_key": SEARCH_API_KEY,
+        "query": query,
+        "max_results": num_results,
+        "search_depth": "advanced",
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        url, data=payload, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        data = json.loads(resp.read().decode("utf-8"))
+
+    results = data.get("results", [])
+    if not results:
+        return ""
+    snippets = []
+    for r in results:
+        title = r.get("title", "")
+        content = r.get("content", "")
+        url_r = r.get("url", "")
+        if content:
+            snippets.append(f"[搜索] {title}\n{content}\n来源: {url_r}")
+    return "\n---\n".join(snippets) if snippets else ""
 
 
 def _ddgs_search(query: str, num_results: int) -> str:

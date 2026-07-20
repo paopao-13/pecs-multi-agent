@@ -11,6 +11,7 @@ from tools.file_reader import file_reader
 from tools.file_parser import file_parser
 from tools.api_caller import api_caller
 from tools.webshop import webshop_select
+from tools.multimodal import multimodal_process
 
 # 工具注册表：action名称 → 工具函数
 TOOL_REGISTRY = {
@@ -19,6 +20,7 @@ TOOL_REGISTRY = {
     "python": python_repl,
     "file_read": file_reader,
     "file_parse": file_parser,
+    "multimodal": multimodal_process,
     "api_call": api_caller,
     "webshop": webshop_select,
 }
@@ -30,6 +32,7 @@ TOOL_DESCRIPTIONS = {
     "python": "Python代码执行工具。输入Python代码字符串，返回执行结果。适用于计算、数据处理、逻辑推理。",
     "file_read": "文件读取工具。输入文件路径，返回文件内容。适用于读取本地文档、配置文件。",
     "file_parse": "文件解析工具。输入文件路径，自动识别PDF/Excel/CSV/图片格式并提取内容。适用于GAIA文件处理任务。",
+    "multimodal": "多模态附件处理工具。输入图片/音频/视频路径，返回识别出的文本（需配置PEC_VISION_*后端）。适用于GAIA多模态附件任务。",
     "api_call": "通用API调用工具。输入URL和参数，返回响应内容。适用于调用外部API获取数据。",
     "webshop": "WebShop商品选择工具。输入购物需求和可选商品目录，返回最匹配商品。适用于购物导航任务。",
 }

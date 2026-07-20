@@ -15,6 +15,7 @@ PECS（Plan-Execute-Critic-Synthesize）是一个**多智能体协作框架**：
 - **稳定性工程**：全局令牌桶限流（超限返回 429 而非 500）、混沌注入优雅降级（传输层故障零 500）、可恢复驱动（断点续跑）
 - **可观测与防回归**：Prometheus 指标端点 + CI 服务层门禁（每次 PR 自动挡回归）
 - **安全沙箱**：代码执行 AST 黑名单 + 白名单 `__builtins__` + dunder 属性链拦截 + 超时熔断，四层防护
+- **多模态与附件处理**：文本类附件（PDF/Excel/CSV）经 `file_parse` 解析接入上下文；图片/音频/视频支持**可插拔多模态后端**（配置 `PEC_VISION_*` 即启用，未配置优雅降级跳回原行为），将 GAIA 附件子集从"全失败"推向"可解"
 
 ## 🏗️ 架构概览
 
@@ -146,15 +147,21 @@ sequenceDiagram
 |------|:-----------:|:----------:|:--------:|:--------:|
 | 准确率（总体） | 24.5% (13/53) | 26.4% (14/53) | +1.9pp | McNemar p=1.0 |
 | 准确率（无附件） | 28.6% (12/42) | 33.3% (14/42) | +4.8pp | - |
-| 准确率（有附件） | 9.1% (1/11) | 0% (0/11) | -9.1pp | 附件题 PECS 均失败 |
+| 准确率（有附件） | 9.1% (1/11) | 0% (0/11) | -9.1pp | 文本附件已接 file_parse；图/音/视频待多模态后端（待重跑） |
 | 平均 Token/题 | 5,076 | 20,966 | PECS 更高* | - |
 | 平均耗时/题 | 26.9s | 71.4s | PECS 更慢 | - |
 
-> 数据来源：HuggingFace `gaia-benchmark/GAIA` Level 1 validation set（53题），非内置 mock。含真实搜索、多步推理、文件解析（xlsx/pdf/py/mp3）。3 道 mp3 附件题因需多模态模型标记 skipped。
+> 数据来源：HuggingFace `gaia-benchmark/GAIA` Level 1 validation set（53题），非内置 mock。含真实搜索、多步推理、文件解析（xlsx/pdf/py/mp3）。4 道（2 png + 2 mp3）多模态附件题因需多模态模型标记 skipped。
 >
 > \* PECS Token 更高：多角色协作（Planner+Executor+Critic+Synthesizer）的固有开销，在知识检索类任务上 PECS 搜索更深入但未必更准。内置 33 题 PECS Token 更低，因计算题启发式 0-token 秒杀拉低了均值。
 >
 > **统计显著性**：McNemar 检验 p=1.0（>>0.05），差异**完全不显著**。b=6（PECS对ReAct错）、c=5（PECS错ReAct对），两者几乎持平。结论：在 GAIA 这类以知识检索为主的任务上，多智能体相对单 Agent **没有显著优势**。
+
+> **能力升级（待重跑确认，不篡改上述数字）**：上表为升级前的实测（PECS 26.4% / 附件 0%）。代码层面已新增三类提分能力，尚未重跑官方 53 题：
+> 1. **文本附件接线**：评测 harness 现显式提示 Planner 用 `file_parse` 解析 PDF/Excel/CSV 附件（工具早已存在但未接线），预期回收部分文本类附件题。
+> 2. **多模态后端可插拔**：图片/音频/视频不再一律 skip，改为经可配置的多模态后端（OpenAI 兼容，`PEC_VISION_*`）预处理为文本后注入；未配置则优雅降级回 skip，**保证现有跑分零回归**。预期将 4 道（2 png + 2 mp3）多模态题从 0% 推向可解。
+> 3. **检索与鲁棒性增强**：Web 搜索支持可选 Tavily 真实 API（`PEC_SEARCH_*`）；Planner 新增"先搜后浏览"多跳与"数值必用 python 实算"规则；Synthesizer 对"无法确定/无法回答"等放弃型答案触发一次重规划而非冻结错误答案。
+> 上述改动经编译与 mock 单测验证（多模态未配置时正确降级、工具注册/提示接线正确、放弃型答案触发反思、搜索回退不崩）。**真实增益以用户本机配置多模态后端并重跑 `run_gaia_official.py` 后的数据为准**，届时将更新本表。
 
 > **实验数据修正声明（TDD 发现的 bug 影响）**：
 > 上述数据是修复 2 个影响评测准确性的 bug 后的真实结果。原始数据为 PECS 26.4% vs ReAct 15.1%（+11.3pp），但 TDD 补测试过程中发现：
@@ -408,6 +415,12 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `LLM_API_KEY` | 否 | 空 | LLM API 密钥（支持 GLM/DeepSeek/Qwen） |
 | `LLM_BASE_URL` | 否 | DeepSeek | API 端点 URL |
 | `LLM_MODEL` | 否 | deepseek-chat | 模型名称 |
+| `PEC_VISION_BASE_URL` | 否 | 空 | 多模态后端基址（OpenAI 兼容，如 `https://api.openai.com/v1`）；配置后 GAIA 图片/音频/视频附件题转为文本注入 |
+| `PEC_VISION_MODEL` | 否 | 空 | 视觉模型名（如 `gpt-4o-mini`）；未配置则多模态附件题优雅降级为跳过 |
+| `PEC_VISION_API_KEY` | 否 | 空 | 多模态后端 API Key |
+| `PEC_TRANSCRIBE_MODEL` | 否 | 同 `PEC_VISION_MODEL` | 音频转写模型名（部分端点支持 audio transcription） |
+| `PEC_SEARCH_PROVIDER` | 否 | 空 | 真实搜索 API 提供商，目前支持 `tavily`；配置后 Web 检索改用其接地摘要 |
+| `PEC_SEARCH_API_KEY` | 否 | 空 | 对应搜索 API Key |
 
 配置文件（`config.py`）关键参数：
 

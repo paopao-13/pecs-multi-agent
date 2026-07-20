@@ -405,27 +405,47 @@ def evaluate_gaia_official(
             })
             continue
 
-        # 构造完整问题（含附件路径）
+        # 构造完整问题（含附件处理）
         full_question = question
         attachment_path = ds.resolve_attachment(sample)
         if attachment_path:
             ext = os.path.splitext(attachment_path)[1].lower()
-            # 图片/音视频附件 DeepSeek 无法处理，标记跳过
-            if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".mp3", ".mp4", ".mov", ".m4a"):
-                print(f"[{i+1}/{len(samples)}] {task_id}: 跳过（{ext} 附件需多模态模型）")
-                results.append({
-                    "task_id": task_id,
-                    "question": question[:100],
-                    "ground_truth": ground_truth,
-                    "predicted": "",
-                    "correct": False,
-                    "tokens_used": 0,
-                    "has_attachment": has_attachment,
-                    "error": f"multimodal_skip_{ext}",
-                })
-                has_file_total += 1
-                continue
-            full_question = f"{question}\n\n[附件文件路径: {attachment_path}]"
+            # 多模态附件（图片/音视频）：尝试预处理为文本后注入
+            # 需配置多模态后端（PEC_VISION_*），未配置或失败则优雅降级跳过（保持原行为，不破坏现有跑分）
+            if ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
+                       ".mp3", ".m4a", ".wav", ".ogg", ".flac",
+                       ".mp4", ".mov", ".mkv", ".webm"):
+                try:
+                    from tools.multimodal import multimodal_process
+                    processed = multimodal_process({"path": attachment_path})
+                except Exception as e:
+                    processed = f"[多模态处理不可用] 导入/调用失败: {type(e).__name__}"
+                if processed.startswith("[多模态处理不可用]") or processed.startswith("[多模态处理失败]"):
+                    print(f"[{i+1}/{len(samples)}] {task_id}: 跳过（{ext} 多模态后端不可用：{processed[:60]}）")
+                    results.append({
+                        "task_id": task_id,
+                        "question": question[:100],
+                        "ground_truth": ground_truth,
+                        "predicted": "",
+                        "correct": False,
+                        "tokens_used": 0,
+                        "has_attachment": has_attachment,
+                        "error": f"multimodal_skip_{ext}",
+                    })
+                    has_file_total += 1
+                    continue
+                full_question = (
+                    f"{question}\n\n"
+                    f"[附件（{ext}）已由多模态后端识别为文本]:\n{processed[:6000]}\n"
+                    f"⚠️ 请基于以上附件内容作答。"
+                )
+            else:
+                # 文本类附件（PDF/Excel/CSV/纯文本）：提示先用 file_parse 工具解析
+                full_question = (
+                    f"{question}\n\n"
+                    f"[附件文件路径: {attachment_path}]\n"
+                    f"⚠️ 本题附带文件，请务必先用 file_parse 工具读取并分析该文件内容，再结合问题作答。"
+                )
 
         print(f"[{i+1}/{len(samples)}] {task_id}: {question[:60]}...")
 

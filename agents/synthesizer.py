@@ -246,6 +246,13 @@ def _should_reflect(query: str, answer: str, results: list, iteration: int, comp
         if not has_conclusion:
             return True
 
+    # 放弃型答案：模型输出"无法确定/无法回答"等，而非真实结论
+    # 此类答案几乎必错，应触发一次重规划，尝试不同工具组合（如 web_browse 打开具体网页、python 实算）
+    giveup_kws = ["无法确定", "无法回答", "无法生成", "不能回答", "无法找到",
+                  "找不到相关信息", "insufficient", "cannot determine", "unable to", "i cannot"]
+    if any(kw in answer for kw in giveup_kws):
+        return True
+
     return False
 
 
@@ -257,6 +264,14 @@ def _generate_reflection(query: str, answer: str, results: list, token_used: int
     failed_steps = [r for r in results if not r.get("success", False)]
     if failed_steps:
         reflection_parts.append(f"有 {len(failed_steps)} 个步骤失败，需要换一种方式执行。")
+
+    # 放弃型答案：明确提示换工具 / 实际计算
+    giveup_kws = ["无法确定", "无法回答", "无法生成", "不能回答", "无法找到", "找不到相关信息"]
+    if any(kw in answer for kw in giveup_kws):
+        reflection_parts.append(
+            "上一次未能得出确定答案。请尝试不同策略：用 web_browse 打开具体来源网页提取精确值；"
+            "涉及数值/数量时用 python 实际计算而非凭记忆；必要时将任务拆得更细、分步验证。"
+        )
 
     # 分析答案完整性
     if len(answer) < 50:
