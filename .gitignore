@@ -78,3 +78,8 @@ desktop.ini
 
 # ========== 文档构建 ==========
 docs/_build/
+
+# ========== 本地截图辅助脚本（仅生 README 配图，不入库）==========
+run_demo.py
+capture_screenshot.py
+diag_demo.py

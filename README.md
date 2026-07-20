@@ -437,6 +437,16 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 
 > 现场演示推荐从 `quickstart_no_api.py` 开始（零配置即可运行），再展示 `security_sandbox_demo.py`（安全设计亮点）。
 
+### Web 可视化界面
+
+`python scripts/app.py` 启动后访问 `http://127.0.0.1:5000`，提供任务执行、GAIA 评估、多框架对比三个视图：
+
+![PECS 任务执行视图](assets/demo_screenshot.png)
+
+![PECS GAIA 评估视图](assets/demo_screenshot_gaia.png)
+
+> 截图来自本地运行实例（任务执行视图与 GAIA 评估视图）。实际推理需配置可用的 LLM 网关；未配置 Key 时仍可浏览完整界面与静态样例。
+
 ## 高级功能
 
 ### 批量任务执行
