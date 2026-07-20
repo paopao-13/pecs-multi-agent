@@ -26,6 +26,33 @@ from agents.critic import critic_node
 from agents.synthesizer import synthesizer_node
 from config import DEFAULT_TOKEN_BUDGET, MAX_ITERATIONS
 
+import os as _os
+import time as _time
+
+# 可选链路追踪：仅当环境变量 PEC_TRACE=1 时启用，记录每个角色节点的耗时到
+# state["node_latencies"]，供 GraphTraceLogger 导出端到端链路（含每节点延迟）。
+# 默认关闭 → 完全零行为变化，不影响任何现有评测/生产路径。
+_TRACE = _os.environ.get("PEC_TRACE") == "1"
+
+
+def _wrap_node(name: str, fn):
+    """链路追踪包装器：PEC_TRACE=1 时记录该节点耗时，否则原样返回。"""
+    if not _TRACE:
+        return fn
+
+    def _wrapped(state):
+        t0 = _time.time()
+        out = fn(state)
+        dt = _time.time() - t0
+        # 节点返回的是状态增量 dict，把耗时累加进 node_latencies（LangGraph 会合并回 state）
+        if isinstance(out, dict):
+            lat = list(state.get("node_latencies", [])) if isinstance(state, dict) else []
+            lat.append({"node": name, "elapsed_s": round(dt, 3)})
+            out = {**out, "node_latencies": lat}
+        return out
+
+    return _wrapped
+
 
 def route_after_executor(state: dict) -> str:
     """
@@ -187,11 +214,12 @@ def build_graph(token_budget: int = DEFAULT_TOKEN_BUDGET, checkpointer=None):
     graph = StateGraph(AgentState)
 
     # ===== 添加节点（4个角色 + 1个重试节点）=====
-    graph.add_node("planner", planner_node)
-    graph.add_node("executor", executor_node)
-    graph.add_node("executor_retry", executor_retry_node)
-    graph.add_node("critic", critic_node)
-    graph.add_node("synthesizer", synthesizer_node)
+    # _wrap_node 默认透传；仅 PEC_TRACE=1 时记录每节点耗时（零回归）
+    graph.add_node("planner", _wrap_node("planner", planner_node))
+    graph.add_node("executor", _wrap_node("executor", executor_node))
+    graph.add_node("executor_retry", _wrap_node("executor_retry", executor_retry_node))
+    graph.add_node("critic", _wrap_node("critic", critic_node))
+    graph.add_node("synthesizer", _wrap_node("synthesizer", synthesizer_node))
 
     # ===== 添加边（固定流转）=====
     # Planner → Executor（规划完就执行）

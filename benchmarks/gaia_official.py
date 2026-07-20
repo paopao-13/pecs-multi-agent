@@ -554,6 +554,37 @@ def evaluate_gaia_official(
     return eval_result
 
 
+def _latency_stats(details: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
+    """从逐题详情提取端到端耗时分布（秒），用于真实环境延迟可观测。
+
+    逐题 elapsed_seconds 由 evaluate_gaia_official 记录（单题超时/执行总时长）。
+    返回 p50/p95/min/max/mean，供 README 与面试如实展示"一个真实 GAIA 任务的总时延"。
+    """
+    import statistics
+    vals = [r.get("elapsed_seconds") for r in details if r.get("elapsed_seconds") is not None]
+    if not vals:
+        return None
+    vals_sorted = sorted(vals)
+    n = len(vals_sorted)
+
+    def _pct(p: float) -> float:
+        if n == 1:
+            return vals_sorted[0]
+        k = (n - 1) * p
+        f = int(k)
+        c = min(f + 1, n - 1)
+        return vals_sorted[f] + (vals_sorted[c] - vals_sorted[f]) * (k - f)
+
+    return {
+        "n": n,
+        "min_s": round(min(vals), 1),
+        "p50_s": round(_pct(0.5), 1),
+        "p95_s": round(_pct(0.95), 1),
+        "max_s": round(max(vals), 1),
+        "mean_s": round(statistics.mean(vals), 1),
+    }
+
+
 def run_official_comparison(
     num_samples: Optional[int] = None,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
@@ -590,6 +621,10 @@ def run_official_comparison(
     re_correct = [re_correct_by_id[tid] for tid in sorted(common_ids)]
     mcnemar = mcnemar_test(ma_correct, re_correct)
 
+    # 端到端耗时分布（真实环境延迟可观测，非估算）
+    ma_latency = _latency_stats(ma["details"])
+    re_latency = _latency_stats(re["details"])
+
     # 汇总
     pp = round((ma["accuracy"] - re["accuracy"]) * 100, 2)
     token_diff = round((re["avg_tokens_per_task"] - ma["avg_tokens_per_task"]) / re["avg_tokens_per_task"] * 100, 1) if re["avg_tokens_per_task"] else 0
@@ -619,6 +654,10 @@ def run_official_comparison(
             "token_savings_pct": token_diff,
         },
         "mcnemar_test": mcnemar,
+        "latency_seconds": {
+            "multi_agent": ma_latency,
+            "react": re_latency,
+        },
     }
 
     print("\n" + "="*60)
@@ -627,6 +666,9 @@ def run_official_comparison(
     print(f"  ReAct 准确率: {re['accuracy']*100:.1f}%  ({re['avg_tokens_per_task']} tok/题)")
     print(f"  差值        : {pp:+.1f} pp  Token 降本: {token_diff:+.1f}%")
     print(f"  McNemar     : χ²={mcnemar['statistic']}, p={mcnemar['p_value']}, {'统计显著' if mcnemar['significant'] else '不显著'}")
+    if ma_latency:
+        print(f"  端到端耗时  : PECS p50={ma_latency['p50_s']}s / p95={ma_latency['p95_s']}s / max={ma_latency['max_s']}s"
+              f"  | ReAct p50={re_latency['p50_s']}s / p95={re_latency['p95_s']}s / max={re_latency['max_s']}s")
     print(f"  分层(无附件): PECS {ma['no_attachment']['accuracy']*100:.1f}% vs ReAct {re['no_attachment']['accuracy']*100:.1f}%")
     print(f"  分层(有附件): PECS {ma['with_attachment']['accuracy']*100:.1f}% vs ReAct {re['with_attachment']['accuracy']*100:.1f}%")
     print("="*60)

@@ -10,6 +10,7 @@ Graph Trace Logger —— 多智能体执行链路日志工具
 """
 import os
 import json
+import time as _time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
@@ -64,6 +65,11 @@ class GraphTraceLogger:
         """
         self.verbose = verbose
         self._node_count = 0
+        # 节点级耗时自计时（命令式日志用）；PEC_TRACE=1 时与 builder 写入的
+        # state["node_latencies"] 互补，最终导出以 state 中的为准
+        self._last_ts = None
+        self._last_node = None
+        self._node_latencies: List[Dict[str, Any]] = []
 
     def log_node(self, node_name: str, state: dict):
         """
@@ -80,6 +86,15 @@ class GraphTraceLogger:
             state: 当前 AgentState 字典
         """
         self._node_count += 1
+        # 节点级耗时自计时（相邻节点调用间隔）
+        _now = _time.time()
+        if self._last_ts is not None and self._last_node is not None:
+            self._node_latencies.append({
+                "node": self._last_node,
+                "elapsed_s": round(_now - self._last_ts, 3),
+            })
+        self._last_ts = _now
+        self._last_node = node_name
         role = _NODE_ROLES.get(node_name, node_name)
         role_label = _ROLE_LABELS.get(role, node_name)
 
@@ -343,6 +358,25 @@ class GraphTraceLogger:
             lines.append("")
         else:
             lines.append("*无调度决策记录*")
+            lines.append("")
+
+        # 5.4 节点耗时（端到端延迟分解，可观测性）
+        lines.append(f"### 5.4 节点耗时（端到端延迟分解）")
+        lines.append("")
+        _node_lat = state.get("node_latencies", []) or self._node_latencies
+        if _node_lat:
+            _total = sum(x.get("elapsed_s", 0) for x in _node_lat)
+            lines.append(f"| 节点 | 耗时(s) | 占比 |")
+            lines.append(f"|------|---------|------|")
+            for x in _node_lat:
+                nm = x.get("node", "?")
+                es = x.get("elapsed_s", 0)
+                pct = (es / _total * 100) if _total > 0 else 0
+                lines.append(f"| {_ROLE_LABELS.get(nm, nm)} | {es:.3f} | {pct:.1f}% |")
+            lines.append(f"| **端到端总计** | **{_total:.3f}** | **100%** |")
+            lines.append("")
+        else:
+            lines.append("*无节点耗时记录（运行时不带 PEC_TRACE=1 且未通过 log_node 实时计时）*")
             lines.append("")
 
         # ===== 6. 反思内容 =====

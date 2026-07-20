@@ -115,6 +115,16 @@ sequenceDiagram
 
 > 详细架构设计见 [ARCHITECTURE.md](ARCHITECTURE.md)
 
+### 设计取舍：为何自研而非 AutoGen / CrewAI
+
+常见追问："为什么不直接用现成框架？" 我的增量价值在**三点确定性控制**，现成框架默认给不了：
+
+1. **预算硬上限与三级降级**：`graph/token_budget.py` 在状态图节点级做角色配额 + 70%/85%/95% 降级。AutoGen/CrewAI 没有内置"单任务 token 封顶"，对话轮次失控时成本不可预测——而 PECS 把成本变成了**可承诺的上界**。
+2. **Critic 回打 Planner 的确定性路由**：打破 search 循环、放弃型答案强制重规划，都是 `builder.py` 里的显式条件边。AutoGen 的自由对话式多 Agent 难以对"评审→重规划"做可控、可复现的路由。
+3. **可恢复驱动**：LangGraph `checkpointer` 支持进程被杀后按 `thread_id` 断点续跑，契合生产稳定性诉求。
+
+**权衡（诚实）**：自研的代价是可复用性低、需自己维护调度/降级逻辑；若追求快速原型我会直接用 AutoGen/CrewAI。但在"生产级可控性优先"的岗位诉求下，自研四角色闭环是更契合的选择。
+
 ## 评测结果
 
 > **⚠️ 数据声明（必读）**
@@ -130,9 +140,11 @@ sequenceDiagram
 > - **ReAct 基线**：同一模型 + 同一工具集 + 同一题目，保证对比公平性
 > - **Token 统计**：端到端对比（含 LLM 调用 + 工具执行全流程），非单次 API 调用
 >
+> **一句话总领（面试防追问）**：PECS 在 GAIA 上与 ReAct **无统计显著差异**（McNemar p=1.0）；唯一显著且真实验证的优势是 **WebShop 真实环境 +25pp**（来自"打破 search 循环"这一具体启发式，非多角色数量）。PECS 的核心价值 = 计算类/规则打破类稳定优势 + 生产级工程（限流/可观测/可恢复）+ **成本可预测性**。本仓库刻意不做"多智能体全方位碾压单 Agent"的叙事——那经不起 senior 追问。
+>
 > **接入官方数据集方法**：参见 [EXPERIMENT.md](EXPERIMENT.md) 中「官方数据集接入」章节
 
-**实验环境**：内置 33 题与 WebShop 12 题均基于 DeepSeek-chat 实测（temperature=0.0~0.5 按角色）；GAIA 官方 53 题同样基于 DeepSeek-chat（bug 修复后重跑验证）。GLM-4.7-Flash / Qwen 配置已在 `config.py` 预留但未实测，不纳入结论。| Python 3.10.11 | langgraph 0.2.x | 2026-07-19
+**实验环境**：内置 33 题与 WebShop 12 题均基于 DeepSeek-chat 实测（temperature 按角色 0.0~0.5；**基准评测开启 `PEC_DETERMINISTIC=1` 固定全 0 以保证数字可复现、可 defense**）；GAIA 官方 53 题同样基于 DeepSeek-chat（bug 修复后重跑验证）。GLM-4.7-Flash / Qwen 配置已在 `config.py` 预留但未实测，不纳入结论。| Python 3.10.11 | langgraph 0.2.x | 2026-07-19
 
 | 指标 | ReAct 基线 | 本框架实测 | 提升幅度 | 目标值 | 达标 |
 |------|:-----------:|:----------:|:--------:|:------:|:----:|
@@ -150,12 +162,15 @@ sequenceDiagram
 | 准确率（有附件） | 9.1% (1/11) | 0% (0/11) | -9.1pp | 文本附件已接 file_parse；图/音/视频待多模态后端（待重跑） |
 | 平均 Token/题 | 5,076 | 20,966 | PECS 更高* | - |
 | 平均耗时/题 | 26.9s | 71.4s | PECS 更慢 | - |
+| 端到端耗时分布 (p50/p95/max) | 18.6s / 74.1s / 113.6s | 42.6s / 155.9s / 218.5s | PECS 更慢 | 升级前实测（n=48 有效题，5 题超时/报错无耗时） |
 
 > 数据来源：HuggingFace `gaia-benchmark/GAIA` Level 1 validation set（53题），非内置 mock。含真实搜索、多步推理、文件解析（xlsx/pdf/py/mp3）。4 道（2 png + 2 mp3）多模态附件题因需多模态模型标记 skipped。
 >
 > \* PECS Token 更高：多角色协作（Planner+Executor+Critic+Synthesizer）的固有开销，在知识检索类任务上 PECS 搜索更深入但未必更准。内置 33 题 PECS Token 更低，因计算题启发式 0-token 秒杀拉低了均值。
 >
 > **统计显著性**：McNemar 检验 p=1.0（>>0.05），差异**完全不显著**。b=6（PECS对ReAct错）、c=5（PECS错ReAct对），两者几乎持平。结论：在 GAIA 这类以知识检索为主的任务上，多智能体相对单 Agent **没有显著优势**。
+
+> **💡 成本控制真实含义（避免误读）**：PECS 的成本价值**不在"永远更便宜"**——GAIA 知识检索类任务上 PECS 单题 token 确实高于 ReAct（多角色固有开销，见上表 20,966 vs 5,076）。PECS 真正的成本优势是**可预测 + 硬上限**：每任务 `DEFAULT_TOKEN_BUDGET=50000` 硬封顶，70%/85%/95% 三级降级兜底；而 ReAct **无成本上限**，单题 token 方差极大（曾观测到单题暴涨至 85 万 token）。在计算类（−99.4%）与 WebShop 真实环境（−65.5%）任务上 PECS 实测更便宜；纯知识检索类则以更高 token 换取 Critic 自检与可复现预算。结论：PECS 卖的是**成本可预测性**，不是"绝对最低成本"——这正是对口大模型应用岗的核心卖点。
 
 > **能力升级（待重跑确认，不篡改上述数字）**：上表为升级前的实测（PECS 26.4% / 附件 0%）。代码层面已新增三类提分能力，尚未重跑官方 53 题：
 > 1. **文本附件接线**：评测 harness 现显式提示 Planner 用 `file_parse` 解析 PDF/Excel/CSV 附件（工具早已存在但未接线），预期回收部分文本类附件题。
@@ -482,6 +497,8 @@ result = run_task("计算2的100次方")
 export_task_trace(result)  # 自动保存到 results/traces/
 ```
 
+> **链路追踪与端到端延迟**：设 `PEC_TRACE=1` 后，`graph/builder.py` 会在每个角色节点记录耗时并写入 `state["node_latencies"]`，`export_task_trace` 导出的 markdown 含「5.4 节点耗时」小节（各角色耗时占比 + 端到端总计）。GAIA 官方评测另在聚合结果里输出**逐题端到端耗时分布**（p50/p95/min/max，见上方评测表），`python run_gaia_official.py --dump-failures` 还会把失败题详情导出到 `results/gaia_failures.json`。
+
 ### 自定义Critic开发
 
 ```bash
@@ -628,7 +645,8 @@ pecs-multi-agent/
 | [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署方案 |
 | [docs/archive/testing.md](docs/archive/testing.md) | TDD 实践与 bug 发现记录（归档） |
 | [docs/API.md](docs/API.md) | API接口文档 |
-| [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告 |
+| [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告（含已知逃逸边界与加固路线） |
+| [docs/FAILURE_CASES.md](docs/FAILURE_CASES.md) | 失败案例集（真实 GAIA 失败题 + 修复映射，面试加分项） |
 | [docs/MONITORING.md](docs/MONITORING.md) | 监控告警方案 |
 | [docs/VERSIONING.md](docs/VERSIONING.md) | 版本管理规范 |
 | [docs/FEEDBACK.md](docs/FEEDBACK.md) | 用户反馈记录 |

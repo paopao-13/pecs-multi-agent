@@ -26,6 +26,25 @@ ROLE_TEMPERATURES = {
     "default":     0.1,   # 默认
 }
 
+
+def set_deterministic_mode() -> None:
+    """强制所有角色 temperature=0，消除 Planner/Synthesizer 的随机性，使评测结果可复现。
+
+    须在首次 LLM 调用前调用（评测入口 main() 最开头调用即可）。
+    ReAct 基线复用同一模块，故同样受益。开启后宣称的准确率数字可 defense、
+    可复现，避免"非确定性导致重跑分数漂移"被面试官质疑。
+
+    等效环境变量：PEC_DETERMINISTIC=1（模块导入时即生效）。
+    """
+    for _role in ROLE_TEMPERATURES:
+        ROLE_TEMPERATURES[_role] = 0.0
+
+
+# 评测/基准跑批时通过环境变量预设确定性模式（run_gaia_official.py 也会显式调用）
+if os.environ.get("PEC_DETERMINISTIC") == "1":
+    set_deterministic_mode()
+
+
 # 按角色缓存 LLM 实例（每个角色一个独立实例，temperature 不同）
 _llm_instances: dict = {}
 

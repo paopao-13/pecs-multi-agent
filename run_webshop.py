@@ -37,6 +37,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+from agents.llm_utils import set_deterministic_mode
 from benchmarks.webshop_eval import (
     evaluate_webshop,
     evaluate_react_webshop,
@@ -65,6 +66,9 @@ def _print_result(label: str, r: dict):
 
 
 def main():
+    # 可复现：固定所有角色 temperature=0，确保三组对比数字可复现、可 defense
+    set_deterministic_mode()
+
     parser = argparse.ArgumentParser(description="WebShop 三组对比评测（PECS / ReAct / ReAct-light）")
     parser.add_argument(
         "--only", choices=["all", "light"], default="all",
