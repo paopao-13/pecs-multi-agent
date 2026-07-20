@@ -14,3 +14,4 @@ Pillow>=10.0.0
 requests>=2.31.0
 fastapi>=0.110.0
 uvicorn>=0.29.0
+prometheus_client>=0.20.0
