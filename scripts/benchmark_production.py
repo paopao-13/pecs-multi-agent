@@ -11,12 +11,18 @@ PECS 生产级指标量化基准（真实数据采集）
   M7: 服务稳定性（连续运行无崩溃）
   M8: HOL 阻塞修复验证（LLM 负载下 /health 不阻塞）
   M9: /metrics 实时快照（按 endpoint 分桶延迟 p50/p95/p99 + token 计量）
+  M10: /metrics/prom 端点验证（Prometheus 多进程指标，仅 --prometheus 时跑）
 
 成本维度：M5 采集真实 token 数（LLM 网关 usage_metadata），按可配置参考单价
 （PEC_PRICE_PER_1M，默认 GLM Flash 级别 ¥1/百万 token）推算单任务/总成本。
 
+CI 门禁：--ci 隐含 --skip-run-task（不烧 LLM Key），跑完按阈值评估
+（M2 P95 > ci-p95-ms、M3 有错误、M6 非 400/422、M7 非 100%、M8 仍阻塞 即失败，退出码 2）。
+
 用法：
     python scripts/benchmark_production.py [--llm-key YOUR_KEY] [--base-url URL] [--model MODEL]
+    python scripts/benchmark_production.py --ci            # CI 门禁（不烧 Key）
+    python scripts/benchmark_production.py --prometheus    # 验证多进程指标端点
     不带参数则用 .env 默认值（DeepSeek）。
 
 输出：results/production_bench.json（机器可读）+ 终端人类可读摘要。
@@ -125,6 +131,8 @@ class BenchmarkResult:
     m5_tokens: Dict[str, Any] = field(default_factory=dict)  # 真实 token 聚合（来自 run_task 响应）
     m_cost: Dict[str, Any] = field(default_factory=dict)  # 成本推算（token × 参考单价）
     m_metrics_live: Dict[str, Any] = field(default_factory=dict)  # /metrics 实时快照（分桶延迟 + token）
+    m_prom: Dict[str, Any] = field(default_factory=dict)  # /metrics/prom（Prometheus 多进程指标端点）验证
+    ci_passed: bool = False  # CI 门禁是否通过（--ci 时填充）
 
 
 def http_get(url: str, timeout: float = 5.0) -> LatencySample:
@@ -230,12 +238,13 @@ def _free_port() -> int:
 def measure_startup(port: int) -> float:
     """启动服务并测量到首次响应的时间(ms)"""
     uvicorn_py = _find_uvicorn_python()
-    # 用子进程启动 uvicorn
+    # 用子进程启动 uvicorn（透传当前环境，使 PROMETHEUS_MULTIPROC_DIR / LLM 配置等生效）
     proc = subprocess.Popen(
         [uvicorn_py, "-m", "uvicorn", "scripts.api:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=_PROJECT_ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=os.environ.copy(),
     )
     global _MAIN_SERVER_PROC
     _MAIN_SERVER_PROC = proc
@@ -373,6 +382,7 @@ def _spawn_isolated_server(port: int) -> "subprocess.Popen":
         cwd=_PROJECT_ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=os.environ.copy(),
     )
 
 
@@ -537,6 +547,82 @@ def measure_live_metrics() -> Dict[str, Any]:
     }
 
 
+# ========== M10: /metrics/prom 端点（Prometheus 多进程指标）==========
+def _get_text(url: str, timeout: float = 5.0) -> "tuple[int, str]":
+    """GET 并返回 (status_code, text)，用于非 JSON 的 Prometheus 文本端点。"""
+    req = urllib.request.Request(url)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        return resp.getcode(), resp.read().decode("utf-8", "replace")
+
+
+def measure_prom_metrics() -> Dict[str, Any]:
+    """读取 /metrics/prom（Prometheus 文本格式），验证生产级指标端点可用且含关键指标。
+
+    多 worker（gunicorn -w N）下该端点经 PROMETHEUS_MULTIPROC_DIR 聚合，
+    是外部 Prometheus 真正的 scrape target；此处验证其暴露了我们定义的指标。
+    """
+    url = f"{BASE_URL}/metrics/prom"
+    try:
+        code, text = _get_text(url, timeout=5)
+    except Exception as e:
+        return {"status_code": 0, "ok": False, "error": str(e)}
+    has_total = "pecs_requests_total" in text
+    has_latency = "pecs_request_latency_seconds" in text
+    has_tokens = "pecs_llm_tokens_total" in text
+    result = {
+        "status_code": code,
+        "ok": code == 200 and has_total and has_latency,
+        "has_requests_total": has_total,
+        "has_latency_histogram": has_latency,
+        "has_llm_tokens": has_tokens,
+        "bytes": len(text),
+    }
+    verdict = "✅ /metrics/prom 可用" if result["ok"] else "❌ /metrics/prom 异常"
+    print(f"  {verdict}: status={code}, 含 pecs_requests_total={has_total}, "
+          f"含延迟直方图={has_latency}, 含 token 计数={has_tokens}")
+    return result
+
+
+def evaluate_ci_gates(result: "BenchmarkResult", p95_threshold_ms: float = 100.0) -> List[str]:
+    """CI 门禁：返回未通过的检查项列表（空列表 = 全部通过）。
+
+    仅评估服务层（不依赖 LLM）：启动、存活探针延迟、并发零错误、容错、稳定性、HOL 修复。
+    """
+    failures: List[str] = []
+    if result.m1_startup_ms < 0:
+        failures.append("M1 服务启动失败")
+
+    h = result.m2_health_latency.get("latency_ms", {})
+    if h.get("p95", 0) > p95_threshold_ms:
+        failures.append(f"M2 /health P95={h.get('p95')}ms 超过阈值 {p95_threshold_ms}ms")
+
+    for t in result.m3_throughput.get("tests", []):
+        if t.get("error_requests", 0) > 0:
+            failures.append(f"M3 并发{t['concurrency']} 出现 {t['error_requests']} 个错误请求")
+
+    if not result.m4_metrics_ok:
+        failures.append("M4 /metrics 端点不可用")
+
+    eh = result.m6_error_handling
+    if eh.get("verified_isolated"):
+        if not eh.get("empty_query", {}).get("returned_400"):
+            failures.append("M6 空输入未返回 HTTP 400")
+        if not eh.get("missing_field", {}).get("returned_422"):
+            failures.append("M6 缺字段未返回 HTTP 422")
+    else:
+        failures.append("M6 隔离服务启动失败，容错未验证")
+
+    s = result.m7_stability
+    if s.get("uptime_percent", 100) < 100:
+        failures.append(f"M7 稳定性可用率 {s.get('uptime_percent')}% < 100%")
+
+    m8 = result.m8_health_under_load
+    if m8 and m8.get("health_blocked_during_llm"):
+        failures.append(f"M8 HOL 修复失效：/health P95={m8.get('p95_latency_ms')}ms 仍被 LLM 阻塞")
+
+    return failures
+
+
 # ========== 主流程 ==========
 def main():
     import argparse
@@ -547,6 +633,12 @@ def main():
     parser.add_argument("--model", default=None, help="模型名（覆盖 .env）")
     parser.add_argument("--port", type=int, default=8000, help="服务端口")
     parser.add_argument("--skip-run-task", action="store_true", help="跳过真实 LLM 任务（仅测服务层）")
+    parser.add_argument("--ci", action="store_true",
+                        help="CI 门禁模式：隐含 --skip-run-task，跑完按阈值评估，失败则退出码 2")
+    parser.add_argument("--ci-p95-ms", type=float, default=100.0,
+                        help="CI 门禁中 /health P95 延迟阈值(ms)，超过即判定失败")
+    parser.add_argument("--prometheus", action="store_true",
+                        help="启用 PROMETHEUS_MULTIPROC_DIR 并验证 /metrics/prom (M10)")
     args = parser.parse_args()
 
     # 如果传了参数，设环境变量（不写 .env）
@@ -556,6 +648,19 @@ def main():
         os.environ["LLM_BASE_URL"] = args.base_url
     if args.model:
         os.environ["LLM_MODEL"] = args.model
+
+    # --ci 隐含跳过真实 LLM 任务（不烧 Key，纯服务层门禁）
+    if args.ci:
+        args.skip_run_task = True
+        print("  [CI] 门禁模式：隐含 --skip-run-task（不调用 LLM）")
+
+    # --prometheus：设置多进程指标共享目录（benchmark 自管临时目录），供 M10 验证
+    if args.prometheus:
+        import tempfile
+
+        d = tempfile.mkdtemp(prefix="pecs_prom_")
+        os.environ["PROMETHEUS_MULTIPROC_DIR"] = d
+        print(f"  [prometheus] PROMETHEUS_MULTIPROC_DIR={d}")
 
     global HEALTH_URL, METRICS_URL, RUN_TASK_URL, BASE_URL
     # 默认端口改为动态空闲端口，避免与历史僵尸进程的固定端口(8000)冲突
@@ -656,6 +761,25 @@ def main():
     else:
         print("  （跳过 run_task，无 token 成本数据）")
 
+    # ---- M10: /metrics/prom（Prometheus 多进程指标端点）----
+    if args.prometheus:
+        print("\n[M10] 验证 /metrics/prom（Prometheus 多进程指标）...")
+        result.m_prom = measure_prom_metrics()
+    else:
+        print("\n[M10] 跳过（未指定 --prometheus）")
+
+    # ---- CI 门禁评估（--ci 时）----
+    ci_failures: List[str] = []
+    if args.ci:
+        print("\n[CI] 评估门禁 ...")
+        ci_failures = evaluate_ci_gates(result, p95_threshold_ms=args.ci_p95_ms)
+        result.ci_passed = not ci_failures
+        if ci_failures:
+            for f in ci_failures:
+                print(f"  ❌ {f}")
+        else:
+            print("  ✅ CI 门禁全部通过")
+
     # ---- 输出结果 ----
     output_path = _PROJECT_ROOT / "results" / "production_bench.json"
     output_path.parent.mkdir(exist_ok=True)
@@ -691,6 +815,11 @@ def main():
     if result.m_cost:
         c = result.m_cost
         print(f"  成本推算:    ¥{c['cost_cny']:.4f} 总计 (¥{c['cost_per_task_cny']:.4f}/任务) @ {c['price_note']}")
+    if result.m_prom:
+        ok = result.m_prom.get("ok")
+        print(f"  Prometheus:  /metrics/prom {'✅' if ok else '❌'} (status={result.m_prom.get('status_code')})")
+    if args.ci:
+        print(f"  CI 门禁:     {'✅ 通过' if result.ci_passed else '❌ 失败'}")
 
     # 回收主服务子进程，避免遗留僵尸占用端口
     if _MAIN_SERVER_PROC is not None:
@@ -700,6 +829,13 @@ def main():
         except Exception:
             pass
         print("  🧹 已回收服务子进程")
+
+    # ---- CI 退出码 ----
+    if args.ci:
+        if ci_failures:
+            print("\n❌ CI 门禁失败，退出码 2")
+            sys.exit(2)
+        print("\n✅ CI 门禁通过，退出码 0")
 
 
 if __name__ == "__main__":

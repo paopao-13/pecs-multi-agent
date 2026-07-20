@@ -1,45 +1,35 @@
-name: CI
+name: Production Benchmark CI
 
 on:
+  pull_request:
   push:
     branches: [main]
-  pull_request:
 
 jobs:
-  lint-and-test:
+  benchmark:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11"]
-
     steps:
-      - name: 检出代码
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: 设置 Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-          cache-dependency-path: requirements.txt
+          python-version: "3.11"
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest flake8 black isort
 
-      - name: Black 格式检查
-        run: black --check .
+      - name: Run production benchmark (CI gate, no LLM key)
+        # --ci 隐含 --skip-run-task：纯服务层门禁（启动/延迟/并发/容错/稳定性/HOL），
+        # 任意一项不达标即退出码 2 → PR 变红。不消耗任何 LLM 额度。
+        run: python scripts/benchmark_production.py --ci
 
-      - name: isort 导入排序检查
-        run: isort --check-only .
-
-      - name: flake8 致命语法错误检查
-        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-
-      - name: 运行测试
-        env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-        run: pytest tests/ -v --maxfail=3
+      - name: Upload benchmark report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-bench
+          path: results/production_bench.json
