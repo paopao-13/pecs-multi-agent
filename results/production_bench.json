@@ -1,19 +1,19 @@
 {
-  "timestamp": "2026-07-20T13:38:19+0800",
+  "timestamp": "2026-07-20T14:04:04+0800",
   "python_version": "3.13.14",
-  "m1_startup_ms": 1045.4189777374268,
+  "m1_startup_ms": 533.5745811462402,
   "m2_health_latency": {
     "samples_total": 100,
     "samples_ok": 100,
     "samples_error": 0,
     "latency_ms": {
-      "avg": 2.75,
-      "min": 0.94,
-      "max": 26.06,
-      "p50": 1.67,
-      "p90": 2.78,
-      "p95": 8.12,
-      "p99": 25.59
+      "avg": 3.6,
+      "min": 1.54,
+      "max": 24.92,
+      "p50": 1.82,
+      "p90": 12.93,
+      "p95": 15.48,
+      "p99": 23.38
     }
   },
   "m3_throughput": {
@@ -23,30 +23,30 @@
         "total_requests": 10,
         "ok_requests": 10,
         "error_requests": 0,
-        "throughput_rps": 903.69,
-        "elapsed_s": 0.011,
-        "latency_p95_ms": 6.84,
-        "latency_p99_ms": 6.89
+        "throughput_rps": 608.98,
+        "elapsed_s": 0.016,
+        "latency_p95_ms": 12.22,
+        "latency_p99_ms": 12.31
       },
       {
         "concurrency": 20,
         "total_requests": 20,
         "ok_requests": 20,
         "error_requests": 0,
-        "throughput_rps": 1071.04,
-        "elapsed_s": 0.019,
-        "latency_p95_ms": 11.9,
-        "latency_p99_ms": 11.91
+        "throughput_rps": 791.46,
+        "elapsed_s": 0.025,
+        "latency_p95_ms": 17.96,
+        "latency_p99_ms": 18.0
       },
       {
         "concurrency": 50,
         "total_requests": 50,
         "ok_requests": 50,
         "error_requests": 0,
-        "throughput_rps": 1130.17,
-        "elapsed_s": 0.044,
-        "latency_p95_ms": 27.63,
-        "latency_p99_ms": 28.3
+        "throughput_rps": 728.21,
+        "elapsed_s": 0.069,
+        "latency_p95_ms": 49.02,
+        "latency_p99_ms": 49.65
       }
     ]
   },
@@ -55,13 +55,13 @@
     {
       "query": "1+1等于几？",
       "status_code": 200,
-      "latency_ms": 19080.18,
+      "latency_ms": 5013.5,
       "error": null
     },
     {
       "query": "Python 中如何反转一个列表？",
       "status_code": 200,
-      "latency_ms": 5783.77,
+      "latency_ms": 5919.16,
       "error": null
     }
   ],
@@ -69,27 +69,36 @@
     "empty_query": {
       "status_code": 400,
       "returned_400": true,
-      "note": "独立验证: HTTP 400"
+      "latency_ms": 2.51,
+      "error": "HTTP 400"
     },
     "long_query_10k": {
       "status_code": 200,
-      "latency_ms": 6958.8
+      "latency_ms": 8760.51,
+      "error": null
     },
     "missing_field": {
       "status_code": 422,
       "returned_422": true,
-      "note": "独立验证: HTTP 422 (Pydantic 校验)"
+      "latency_ms": 23.99,
+      "error": "HTTP 422"
     },
-    "verified_isolated": true,
-    "benchmark_inline_note": "完整基准序列中 M6 显示 HTTP 0 系 M5 长任务后端口瞬时争用，非代码缺陷；已独立端口验证容错正确"
+    "verified_isolated": true
   },
   "m7_stability": {
     "duration_s": 30,
-    "total_checks": 148,
-    "success_checks": 148,
+    "total_checks": 145,
+    "success_checks": 145,
     "error_checks": 0,
     "uptime_percent": 100.0,
-    "avg_interval_ms": 202.7,
-    "max_latency_ms": 25
+    "avg_interval_ms": 206.9,
+    "max_latency_ms": 28
+  },
+  "m8_health_under_load": {
+    "concurrent_health_under_load": 20,
+    "ok": 20,
+    "errors": 0,
+    "p95_latency_ms": 21.24,
+    "health_blocked_during_llm": false
   }
 }

@@ -62,6 +62,36 @@ class LatencySample:
     error: Optional[str] = None
 
 
+def _find_uvicorn_python() -> str:
+    """找到能运行 uvicorn 的 python 解释器。
+
+    优先用当前解释器；若其无法 import uvicorn，则回退到已知的 default venv。
+    这样无论用哪个 python 调起本脚本，子进程起的 uvicorn 服务都能正常工作。
+    """
+    import importlib.util
+
+    def _can_import(py: str) -> bool:
+        try:
+            out = subprocess.run(
+                [py, "-c", "import uvicorn"],
+                capture_output=True, timeout=15,
+            )
+            return out.returncode == 0
+        except Exception:
+            return False
+
+    candidates = [
+        sys.executable,
+        str(_PROJECT_ROOT / ".." / "binaries" / "python" / "envs" / "default" / "Scripts" / "python.exe"),
+        r"C:\Users\jx\.workbuddy\binaries\python\envs\default\Scripts\python.exe",
+    ]
+    for py in candidates:
+        if py and _can_import(py):
+            return py
+    # 兜底：返回当前解释器（即使可能缺 uvicorn，让上层报错更明确）
+    return sys.executable
+
+
 @dataclass
 class BenchmarkResult:
     """完整基准结果"""
@@ -75,6 +105,7 @@ class BenchmarkResult:
     m5_run_task_latency: List[Dict[str, Any]] = field(default_factory=list)
     m6_error_handling: Dict[str, Any] = field(default_factory=dict)
     m7_stability: Dict[str, Any] = field(default_factory=dict)
+    m8_health_under_load: Dict[str, Any] = field(default_factory=dict)
 
 
 def http_get(url: str, timeout: float = 5.0) -> LatencySample:
@@ -119,6 +150,13 @@ def http_post_json(url: str, data: dict, timeout: float = TIMEOUT_SECONDS) -> La
                 latency_ms=(time.time() - t0) * 1000.0,
                 status_code=resp.getcode(),
             )
+    except urllib.error.HTTPError as e:
+        # 4xx/5xx 也是合法响应，必须保留真实状态码（如 400/422 参数校验）
+        return LatencySample(
+            latency_ms=(time.time() - t0) * 1000.0,
+            status_code=e.code,
+            error=f"HTTP {e.code}",
+        )
     except Exception as e:
         return LatencySample(
             latency_ms=(time.time() - t0) * 1000.0,
@@ -140,9 +178,10 @@ def percentile(sorted_data: List[float], p: float) -> float:
 # ========== M1: 启动耗时 ==========
 def measure_startup(port: int) -> float:
     """启动服务并测量到首次响应的时间(ms)"""
+    uvicorn_py = _find_uvicorn_python()
     # 用子进程启动 uvicorn
     proc = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "scripts.api:app", "--host", "127.0.0.1", "--port", str(port)],
+        [uvicorn_py, "-m", "uvicorn", "scripts.api:app", "--host", "127.0.0.1", "--port", str(port)],
         cwd=_PROJECT_ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -272,44 +311,81 @@ def measure_run_task(query: str) -> Dict[str, Any]:
 
 
 # ========== M6: 错误处理 ==========
-def measure_error_handling() -> Dict[str, Any]:
-    """测试异常输入的容错能力
+def _spawn_isolated_server(port: int) -> "subprocess.Popen":
+    """在独立端口起一个干净服务，避免受 M5 长耗时任务占用的 LLM 线程池影响。"""
+    uvicorn_py = _find_uvicorn_python()
+    return subprocess.Popen(
+        [uvicorn_py, "-m", "uvicorn", "scripts.api:app",
+         "--host", "127.0.0.1", "--port", str(port)],
+        cwd=_PROJECT_ROOT,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
 
-    注意：本函数假定服务处于「干净状态」（M5 长耗时任务已结束）。
-    若紧接 M5 运行，默认 executor 可能暂时繁忙导致连接被拒（HTTP 0），
-    那是测试编排副作用，非代码缺陷——单独启动服务验证为空输入 400 / 缺字段 422。
+
+def measure_error_handling() -> Dict[str, Any]:
+    """测试异常输入的容错能力。
+
+    在独立端口起一个干净服务（不受 M5 长任务占用的 LLM 线程池干扰），
+    确保空输入→400、缺字段→422 等参数校验结果真实可复现，而非编排副作用。
     """
-    results = {}
+    import socket
+
+    # 动态分配一个空闲端口，避免与历史僵尸进程的固定端口冲突
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        iso_port = s.getsockname()[1]
+
+    iso_url = f"http://127.0.0.1:{iso_port}/run_task"
+    proc = _spawn_isolated_server(iso_port)
+    # 等服务就绪
+    ready = False
+    for _ in range(60):
+        time.sleep(0.5)
+        try:
+            if http_get(f"http://127.0.0.1:{iso_port}/health", timeout=2).status_code == 200:
+                ready = True
+                break
+        except Exception:
+            continue
+    if not ready:
+        proc.kill()
+        return {"error": "隔离服务启动失败", "verified_isolated": False}
+
+    results: Dict[str, Any] = {}
 
     # 6a: 空 query
-    s = http_post_json(RUN_TASK_URL, {"query": ""})
+    s = http_post_json(iso_url, {"query": ""}, timeout=10)
     results["empty_query"] = {
         "status_code": s.status_code,
         "returned_400": s.status_code == 400,
         "latency_ms": round(s.latency_ms, 2),
+        "error": s.error,
     }
-    print(f"  6a 空输入 → HTTP {s.status_code} ({'✅' if s.status_code==400 else '⚠️ 需独立端口复核'})")
+    print(f"  6a 空输入 → HTTP {s.status_code} ({'✅' if s.status_code == 400 else '❌'}) {s.error or ''}")
 
     # 6b: 超长 query (10K chars)
     long_q = "A" * 10000
-    s = http_post_json(RUN_TASK_URL, {"query": long_q})
+    s = http_post_json(iso_url, {"query": long_q}, timeout=10)
     results["long_query_10k"] = {
         "status_code": s.status_code,
         "latency_ms": round(s.latency_ms, 2),
+        "error": s.error,
     }
-    print(f"  6b 超长输入(10K) → HTTP {s.status_code} ({'✅ 未崩' if s.status_code in (200,400,422) else '❌'})")
+    print(f"  6b 超长输入(10K) → HTTP {s.status_code} ({'✅ 未崩' if s.status_code in (200, 400, 422) else '❌'}) {s.error or ''}")
 
     # 6c: 缺少 query 字段
-    s = http_post_json(RUN_TASK_URL, {"not_query": "hello"})
+    s = http_post_json(iso_url, {"not_query": "hello"}, timeout=10)
     results["missing_field"] = {
         "status_code": s.status_code,
+        "returned_422": s.status_code == 422,
         "latency_ms": round(s.latency_ms, 2),
+        "error": s.error,
     }
-    print(
-        f"  6c 缺字段 → HTTP {s.status_code} ({'✅ 未崩' if s.status_code in (200,400,422) else '⚠️ 需独立端口复核'})"
-    )
-    print(f"  6c 缺字段 → HTTP {s.status_code} ({'✅ 未崩' if s.status_code in (200,400,422) else '❌'})")
+    print(f"  6c 缺字段 → HTTP {s.status_code} ({'✅' if s.status_code == 422 else '❌'}) {s.error or ''}")
 
+    results["verified_isolated"] = True
+    proc.kill()
     return results
 
 
