@@ -1,0 +1,92 @@
+{
+  "timestamp": "2026-07-20T11:37:42+0800",
+  "python_version": "3.13.14",
+  "m1_startup_ms": 709.8338603973389,
+  "m2_health_latency": {
+    "samples_total": 100,
+    "samples_ok": 100,
+    "samples_error": 0,
+    "latency_ms": {
+      "avg": 3.54,
+      "min": 1.27,
+      "max": 30.64,
+      "p50": 1.8,
+      "p90": 3.42,
+      "p95": 18.75,
+      "p99": 25.63
+    }
+  },
+  "m3_throughput": {
+    "tests": [
+      {
+        "concurrency": 10,
+        "total_requests": 10,
+        "ok_requests": 10,
+        "error_requests": 0,
+        "throughput_rps": 763.88,
+        "elapsed_s": 0.013,
+        "latency_p95_ms": 9.67,
+        "latency_p99_ms": 9.73
+      },
+      {
+        "concurrency": 20,
+        "total_requests": 20,
+        "ok_requests": 20,
+        "error_requests": 0,
+        "throughput_rps": 908.86,
+        "elapsed_s": 0.022,
+        "latency_p95_ms": 16.44,
+        "latency_p99_ms": 16.59
+      },
+      {
+        "concurrency": 50,
+        "total_requests": 50,
+        "ok_requests": 50,
+        "error_requests": 0,
+        "throughput_rps": 959.41,
+        "elapsed_s": 0.052,
+        "latency_p95_ms": 37.6,
+        "latency_p99_ms": 38.06
+      }
+    ]
+  },
+  "m4_metrics_ok": true,
+  "m5_run_task_latency": [
+    {
+      "query": "1+1等于几？",
+      "status_code": 200,
+      "latency_ms": 7561.11,
+      "error": null
+    },
+    {
+      "query": "Python 中如何反转一个列表？",
+      "status_code": 200,
+      "latency_ms": 5993.76,
+      "error": null
+    }
+  ],
+  "m6_error_handling": {
+    "empty_query": {
+      "status_code": 0,
+      "returned_400": false,
+      "latency_ms": 1.62
+    },
+    "long_query_10k": {
+      "status_code": 200,
+      "latency_ms": 7378.3
+    },
+    "missing_field": {
+      "status_code": 0,
+      "latency_ms": 23.71
+    }
+  },
+  "m7_stability": {
+    "duration_s": 30,
+    "total_checks": 147,
+    "success_checks": 147,
+    "error_checks": 0,
+    "uptime_percent": 100.0,
+    "avg_interval_ms": 204.08,
+    "max_latency_ms": 218
+  }
+}
