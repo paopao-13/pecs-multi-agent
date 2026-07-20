@@ -266,9 +266,11 @@ python run_webshop.py --tasks 12
 # 3. 可恢复驱动运行（断点续跑，生产级稳定性）
 python run_resumable.py "你的任务描述"
 
-# 4. 生产级 API 服务（FastAPI + 基础 metrics，可观测性）
-uvicorn scripts.api:app --host 0.0.0.0 --port 8000
-# 提供 /health（存活探针）、/metrics（请求计数 + 耗时直方图）、/run_task（任务执行）
+# 4. 生产级 API 服务（FastAPI async + 独立 LLM 线程池，无 HOL 阻塞）
+uvicorn scripts.api:app --host 0.0.0.0 --port 8000 --workers 1
+# 提供 /health（存活探针，LLM 负载下 P95 < 13ms）、/metrics（请求计数 + 耗时直方图 + 错误率）、/run_task（任务执行，120s 超时熔断）
+# 关键设计：/run_task 通过独立 ThreadPoolExecutor(max_workers=4) 隔离 LLM 调用，
+#          轻量探针不会被长耗时 LLM 任务阻塞（已修复 Head-of-Line 阻塞，见 results/production_bench.json M8）
 ```
 
 > 零配置可跑：`python demos/quickstart_no_api.py`（启发式兜底 + Python 沙箱，无需 API Key）。
