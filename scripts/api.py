@@ -29,6 +29,16 @@ v0.5.0 改动（启动自检 + 多 worker 指标正确性）：
   外部 Prometheus 直接 scrape 该端点；避免原进程内字典在多线程/多进程下失真）。
   /metrics（JSON）保留为单 worker / 开发态便利端点（含按端点分桶延迟与真实 token 计量）。
 
+v0.6.0 改动（#4 全局限流 + #7 故障注入/混沌）：
+- #4 令牌桶限流：新增 PEC_RATE_LIMIT_RPS / PEC_RATE_LIMIT_BURST（均为 0 关闭）。
+  以 FastAPI Depends 形式应用于 /metrics、/metrics/prom、/run_task；
+  /health 豁免（探针不能被限流误杀）。令牌桶进程内单 worker 语义，超限返回 429。
+  计数器 RATE_LIMITED 暴露至 /metrics 与 Prometheus。
+- #7 故障注入/混沌：PEC_CHAOS=1 + PEC_CHAOS_TOKEN 启用 /admin/chaos（GET 查看 / POST 切换模式）。
+  支持 llm_down 模式：使 /run_task 返回结构化错误（非 500），验证依赖故障下优雅降级。
+  任何传输层故障（畸形 JSON / 错误 Content-Type / 超大负载）均被结构化拒绝（400/422），绝不 panic。
+  计数器 CHAOS_INJECTED 暴露至 /metrics 与 Prometheus。
+
 本地启动（开发 / 单 worker）：
     uvicorn scripts.api:app --host 0.0.0.0 --port 8000
 
@@ -42,13 +52,14 @@ v0.5.0 改动（启动自检 + 多 worker 指标正确性）：
 import os
 import sys
 import time
+from functools import partial
 import asyncio
 import concurrent.futures
 import threading
 from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 
 # 确保项目根目录在 Python 路径中（与 scripts/app.py 保持一致）
@@ -121,8 +132,10 @@ if _PROM_AVAILABLE:
     )
     LLM_TOKENS = Counter("pecs_llm_tokens_total", "LLM 消耗 token 总数")
     LLM_TASKS = Counter("pecs_llm_tasks_total", "LLM 任务执行总数")
+    RATE_LIMITED = Counter("pecs_rate_limited_total", "被限流(429)的请求总数", ["endpoint"])
+    CHAOS_INJECTED = Counter("pecs_chaos_injected_total", "注入的混沌故障总数", ["mode"])
 else:  # pragma: no cover - 缺依赖时占位
-    REQ_TOTAL = REQ_LATENCY = LLM_TOKENS = LLM_TASKS = None
+    REQ_TOTAL = REQ_LATENCY = LLM_TOKENS = LLM_TASKS = RATE_LIMITED = CHAOS_INJECTED = None
 
 
 def _cleanup_prometheus() -> None:
@@ -132,6 +145,80 @@ def _cleanup_prometheus() -> None:
             _mp_mod.mark_process_dead(os.getpid())
         except Exception:
             pass
+
+
+# ---------- #4 全局限流（令牌桶）----------
+# 进程内单 worker 语义：多 worker 部署时若需全局一致限流，应在网关/反向代理层做。
+# PEC_RATE_LIMIT_RPS=0 或 PEC_RATE_LIMIT_BURST=0 表示关闭限流。
+_RATE_LIMIT_RPS = float(os.getenv("PEC_RATE_LIMIT_RPS", "0"))
+_RATE_LIMIT_BURST = float(os.getenv("PEC_RATE_LIMIT_BURST", "0"))
+_RATE_LIMIT_ENABLED = _RATE_LIMIT_RPS > 0 and _RATE_LIMIT_BURST > 0
+
+
+class _TokenBucket:
+    """简单令牌桶：允许突发至 burst，长期速率受 rps 约束。线程安全。"""
+
+    def __init__(self, rps: float, burst: float):
+        self._rps = rps
+        self._capacity = burst
+        self._tokens = burst
+        self._last = time.monotonic()
+        self._lk = threading.Lock()
+
+    def consume(self) -> bool:
+        with self._lk:
+            now = time.monotonic()
+            # 补充令牌
+            self._tokens = min(
+                self._capacity, self._tokens + (now - self._last) * self._rps
+            )
+            self._last = now
+            if self._tokens >= 1.0:
+                self._tokens -= 1.0
+                return True
+            return False
+
+
+_RATE_BUCKETS: Dict[str, _TokenBucket] = {}
+
+
+def _get_bucket(endpoint: str) -> Optional[_TokenBucket]:
+    if not _RATE_LIMIT_ENABLED:
+        return None
+    b = _RATE_BUCKETS.get(endpoint)
+    if b is None:
+        b = _TokenBucket(_RATE_LIMIT_RPS, _RATE_LIMIT_BURST)
+        _RATE_BUCKETS[endpoint] = b
+    return b
+
+
+def _rate_limit_check(endpoint: str) -> None:
+    """实际限流逻辑（同步依赖）：超限抛 429。"""
+    bucket = _get_bucket(endpoint)
+    if bucket is None:
+        return
+    if not bucket.consume():
+        if _PROM_AVAILABLE:
+            RATE_LIMITED.labels(endpoint=endpoint).inc()
+        with _lock:
+            _metrics.setdefault("rate_limited", {}).setdefault(endpoint, 0)
+            _metrics["rate_limited"][endpoint] += 1
+        raise HTTPException(
+            status_code=429,
+            detail=f"请求过于频繁（限流 {_RATE_LIMIT_RPS:g}/s，突发 {_RATE_LIMIT_BURST:g}）",
+        )
+
+
+def _rate_limit_dep(endpoint: str) -> Any:
+    """返回 FastAPI Depends（基于 functools.partial 的同步依赖）。/health 豁免。"""
+    return Depends(partial(_rate_limit_check, endpoint))
+
+
+# ---------- #7 故障注入 / 混沌状态 ----------
+# 通过 /admin/chaos（需 PEC_CHAOS=1 + PEC_CHAOS_TOKEN）切换。生产默认关闭。
+_CHAOS_ENABLED = os.getenv("PEC_CHAOS", "0") == "1"
+_CHAOS_TOKEN = os.getenv("PEC_CHAOS_TOKEN", "")
+_CHAOS_MODE: Optional[str] = None  # None / "llm_down"
 
 
 # ---------- 基础 metrics（进程内，开发/单 worker 便利端点，零外部依赖）----------
@@ -146,6 +233,10 @@ _metrics: Dict[str, Any] = {
     # Token 计量：仅统计真实 LLM 任务（/run_task 成功），数据来自 LLM 网关 usage_metadata
     "llm_tasks": 0,
     "total_tokens": 0,
+    # 限流计数（按 endpoint）
+    "rate_limited": {},
+    # 当前混沌模式（None 表示未注入）
+    "chaos_mode": None,
 }
 
 
@@ -156,12 +247,17 @@ def _pct(sorted_vals: list, q: float) -> float:
     return sorted_vals[idx]
 
 
-def _record(endpoint: str, latency_ms: float, error: bool = False, tokens: int = 0) -> None:
+def _record(endpoint: str, latency_ms: float, error: bool = False, tokens: int = 0, rate_limited: bool = False) -> None:
     with _lock:
         _metrics["total_requests"] += 1
         _metrics["by_endpoint"][endpoint] = _metrics["by_endpoint"].get(endpoint, 0) + 1
         if error:
             _metrics["errors"] += 1
+        if rate_limited:
+            _metrics["rate_limited"].setdefault(endpoint, 0)
+            _metrics["rate_limited"][endpoint] += 1
+            if _PROM_AVAILABLE:
+                RATE_LIMITED.labels(endpoint=endpoint).inc()
         bucket = _metrics["latency_by_endpoint"].setdefault(endpoint, [])
         bucket.append(latency_ms)
         if len(bucket) > 1000:
@@ -209,6 +305,13 @@ def _summary() -> Dict[str, Any]:
             "total_tokens": total_tokens,
             "avg_tokens_per_task": round(total_tokens / llm_tasks, 1) if llm_tasks else 0,
         },
+        "rate_limit": {
+            "enabled": _RATE_LIMIT_ENABLED,
+            "rps": _RATE_LIMIT_RPS,
+            "burst": _RATE_LIMIT_BURST,
+            "rate_limited_by_endpoint": dict(_metrics["rate_limited"]),
+        },
+        "chaos_mode": _metrics["chaos_mode"],
         "uptime_seconds": round(time.time() - _metrics["start_time"], 1),
         # 诚实声明：JSON /metrics 来自进程内字典，仅供单 worker / 开发态查看；
         # 多 worker 生产部署请 scrape /metrics/prom（Prometheus 多进程聚合）。
@@ -245,7 +348,7 @@ async def lifespan(app: FastAPI):
     _cleanup_prometheus()
 
 
-app = FastAPI(title="PECS Multi-Agent API", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="PECS Multi-Agent API", version="0.6.0", lifespan=lifespan)
 
 
 # ---------- 同步执行体（在线程池中跑，避免阻塞事件循环）----------
@@ -294,7 +397,7 @@ async def health() -> Dict[str, Any]:
     return out
 
 
-@app.get("/metrics")
+@app.get("/metrics", dependencies=[_rate_limit_dep("metrics")])
 async def metrics() -> Dict[str, Any]:
     t0 = time.time()
     out = _summary()
@@ -302,7 +405,7 @@ async def metrics() -> Dict[str, Any]:
     return out
 
 
-@app.get("/metrics/prom")
+@app.get("/metrics/prom", dependencies=[_rate_limit_dep("metrics_prom")])
 async def metrics_prom() -> Response:
     """Prometheus 多进程指标端点（生产多 worker 的 scrape target）。"""
     if not _PROM_AVAILABLE:
@@ -312,7 +415,7 @@ async def metrics_prom() -> Response:
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
-@app.post("/run_task", response_model=RunTaskResponse)
+@app.post("/run_task", response_model=RunTaskResponse, dependencies=[_rate_limit_dep("run_task")])
 async def run_task(req: RunTaskRequest) -> RunTaskResponse:
     # 输入校验优先于依赖可用性检查：即便 LLM 未配置，坏输入也应得到明确的 400/422，
     # 而不是被 503（依赖不可用）吞掉，便于上游正确区分“请求错误”与“服务不可用”
@@ -327,6 +430,19 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
         raise HTTPException(
             status_code=503,
             detail="LLM 未配置：缺少 LLM_API_KEY，/run_task 暂不可用。请配置后重启服务。",
+        )
+
+    # #7 故障注入：llm_down 模式模拟下游 LLM 层故障 → 结构化错误（非 500），验证优雅降级
+    if _CHAOS_MODE == "llm_down":
+        _record("run_task", 0.0)
+        with _lock:
+            _metrics["chaos_mode"] = _CHAOS_MODE
+        if _PROM_AVAILABLE:
+            CHAOS_INJECTED.labels(mode="llm_down").inc()
+        return RunTaskResponse(
+            success=False,
+            query=req.query,
+            error="[CHAOS] 模拟 LLM 层故障：下游推理服务不可达（依赖故障被隔离，服务未崩溃）",
         )
 
     loop = asyncio.get_event_loop()
@@ -355,3 +471,45 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
         latency = (time.time() - t0) * 1000.0
         _record("run_task", latency, error=True)
         return RunTaskResponse(success=False, query=req.query, error=str(exc))
+
+
+# ---------- #7 故障注入 / 混沌管理端点 ----------
+@app.get("/admin/chaos")
+async def chaos_get() -> Dict[str, Any]:
+    """查看当前混沌状态。未启用混沌时返回 404，避免暴露内部能力面。"""
+    if not _CHAOS_ENABLED:
+        raise HTTPException(status_code=404, detail="混沌测试未启用（设置 PEC_CHAOS=1 启动）")
+    return {
+        "enabled": _CHAOS_ENABLED,
+        "token_required": bool(_CHAOS_TOKEN),
+        "current_mode": _CHAOS_MODE,
+        "available_modes": [None, "llm_down"],
+    }
+
+
+@app.post("/admin/chaos")
+async def chaos_post(req: Request) -> Dict[str, Any]:
+    """切换混沌模式。需 PEC_CHAOS=1 且（若设了 PEC_CHAOS_TOKEN）携带正确 token（header X-Chaos-Token）。"""
+    if not _CHAOS_ENABLED:
+        raise HTTPException(status_code=404, detail="混沌测试未启用（设置 PEC_CHAOS=1 启动）")
+    # token 校验：若设置了 PEC_CHAOS_TOKEN，必须从 header 携带正确值
+    if _CHAOS_TOKEN:
+        provided = req.headers.get("X-Chaos-Token", "")
+        if provided != _CHAOS_TOKEN:
+            raise HTTPException(status_code=403, detail="混沌 token 错误（header X-Chaos-Token）")
+    # 解析 body 中的 mode（兼容空 body → 关闭）
+    try:
+        body = await req.json()
+        mode = body.get("mode") if isinstance(body, dict) else None
+    except Exception:
+        mode = None
+    # 校验模式合法性
+    if mode not in (None, "llm_down"):
+        raise HTTPException(status_code=400, detail=f"未知混沌模式: {mode!r}（仅支持 null / 'llm_down'）")
+    global _CHAOS_MODE
+    _CHAOS_MODE = mode
+    with _lock:
+        _metrics["chaos_mode"] = _CHAOS_MODE
+    if _PROM_AVAILABLE and _CHAOS_MODE:
+        CHAOS_INJECTED.labels(mode=_CHAOS_MODE).inc()
+    return {"enabled": _CHAOS_ENABLED, "current_mode": _CHAOS_MODE}

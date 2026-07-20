@@ -1,19 +1,19 @@
 {
-  "timestamp": "2026-07-20T15:57:45+0800",
+  "timestamp": "2026-07-20T17:31:27+0800",
   "python_version": "3.13.14",
-  "m1_startup_ms": 1577.0056247711182,
+  "m1_startup_ms": 1047.6388931274414,
   "m2_health_latency": {
     "samples_total": 100,
     "samples_ok": 100,
     "samples_error": 0,
     "latency_ms": {
-      "avg": 1.92,
-      "min": 1.13,
-      "max": 17.05,
-      "p50": 1.62,
-      "p90": 1.99,
-      "p95": 2.28,
-      "p99": 13.32
+      "avg": 2.76,
+      "min": 0.87,
+      "max": 24.0,
+      "p50": 1.44,
+      "p90": 2.32,
+      "p95": 13.03,
+      "p99": 23.28
     }
   },
   "m3_throughput": {
@@ -23,84 +23,73 @@
         "total_requests": 10,
         "ok_requests": 10,
         "error_requests": 0,
-        "throughput_rps": 831.89,
-        "elapsed_s": 0.012,
-        "latency_p95_ms": 7.67,
-        "latency_p99_ms": 7.73
+        "throughput_rps": 1192.38,
+        "elapsed_s": 0.008,
+        "latency_p95_ms": 5.15,
+        "latency_p99_ms": 5.24
       },
       {
         "concurrency": 20,
         "total_requests": 20,
         "ok_requests": 20,
         "error_requests": 0,
-        "throughput_rps": 619.03,
-        "elapsed_s": 0.032,
-        "latency_p95_ms": 21.01,
-        "latency_p99_ms": 24.35
+        "throughput_rps": 1212.44,
+        "elapsed_s": 0.016,
+        "latency_p95_ms": 10.96,
+        "latency_p99_ms": 11.11
       },
       {
         "concurrency": 50,
         "total_requests": 50,
         "ok_requests": 50,
         "error_requests": 0,
-        "throughput_rps": 817.14,
-        "elapsed_s": 0.061,
-        "latency_p95_ms": 43.26,
-        "latency_p99_ms": 44.29
+        "throughput_rps": 1274.11,
+        "elapsed_s": 0.039,
+        "latency_p95_ms": 24.11,
+        "latency_p99_ms": 24.41
       }
     ]
   },
   "m4_metrics_ok": true,
-  "m5_run_task_latency": [
-    {
-      "query": "1+1等于几？",
-      "status_code": 200,
-      "latency_ms": 7330.94,
-      "token_used": 694,
-      "error": null
-    },
-    {
-      "query": "Python 中如何反转一个列表？",
-      "status_code": 200,
-      "latency_ms": 6019.49,
-      "token_used": 694,
-      "error": null
-    }
-  ],
+  "m5_run_task_latency": [],
   "m6_error_handling": {
-    "error": "隔离服务启动失败",
-    "verified_isolated": false
+    "empty_query": {
+      "status_code": 400,
+      "returned_400": true,
+      "latency_ms": 6.36,
+      "error": "HTTP 400"
+    },
+    "long_query_10k": {
+      "status_code": 0,
+      "latency_ms": 30028.07,
+      "error": "timed out"
+    },
+    "missing_field": {
+      "status_code": 422,
+      "returned_422": true,
+      "latency_ms": 1.88,
+      "error": "HTTP 422"
+    },
+    "verified_isolated": true
   },
   "m7_stability": {
     "duration_s": 30,
-    "total_checks": 149,
-    "success_checks": 149,
+    "total_checks": 148,
+    "success_checks": 148,
     "error_checks": 0,
     "uptime_percent": 100.0,
-    "avg_interval_ms": 201.34,
-    "max_latency_ms": 3
+    "avg_interval_ms": 202.7,
+    "max_latency_ms": 25
   },
   "m8_health_under_load": {
     "concurrent_health_under_load": 20,
     "ok": 20,
     "errors": 0,
-    "p95_latency_ms": 13.08,
+    "p95_latency_ms": 21.43,
     "health_blocked_during_llm": false
   },
-  "m5_tokens": {
-    "tasks_measured": 2,
-    "tokens_seen": 1388,
-    "avg_tokens_per_task": 694.0,
-    "note": "真实 token 数来自 LLM 网关 usage_metadata"
-  },
-  "m_cost": {
-    "total_tokens": 2089,
-    "price_per_1m_cny": 1.0,
-    "price_note": "GLM Flash 级别参考单价 ¥1.00/百万 token（可经环境变量 PEC_PRICE_PER_1M 覆盖；token 数为网关真实 usage_metadata，成本据此推算）",
-    "cost_cny": 0.002089,
-    "cost_per_task_cny": 0.000696,
-    "note": "成本 = 真实 token 数 × 参考单价；单价可经 PEC_PRICE_PER_1M 覆盖"
-  },
+  "m5_tokens": {},
+  "m_cost": {},
   "m_metrics_live": {
     "latency_by_endpoint_ms": {
       "health": {
@@ -108,38 +97,61 @@
         "p95": 0.01,
         "p99": 0.01,
         "avg": 0.01,
-        "samples": 350
+        "samples": 349
       },
       "metrics": {
-        "p50": 0.07,
-        "p95": 0.07,
-        "p99": 0.07,
-        "avg": 0.07,
+        "p50": 0.06,
+        "p95": 0.06,
+        "p99": 0.06,
+        "avg": 0.06,
         "samples": 1
       },
       "run_task": {
-        "p50": 6017.06,
-        "p95": 7327.72,
-        "p99": 7327.72,
-        "avg": 5964.02,
-        "samples": 3
+        "p50": 3490.72,
+        "p95": 3490.72,
+        "p99": 3490.72,
+        "avg": 3490.72,
+        "samples": 1
       }
     },
     "tokens": {
-      "llm_tasks": 3,
-      "total_tokens": 2089,
-      "avg_tokens_per_task": 696.3
+      "llm_tasks": 1,
+      "total_tokens": 631,
+      "avg_tokens_per_task": 631.0
     },
-    "total_requests": 354,
+    "total_requests": 351,
     "errors": 0
   },
-  "m_prom": {
-    "status_code": 200,
-    "ok": true,
-    "has_requests_total": true,
-    "has_latency_histogram": true,
-    "has_llm_tokens": true,
-    "bytes": 9775
+  "m_prom": {},
+  "m11_rate_limit": {
+    "rps": 2,
+    "burst": 3,
+    "sent": 20,
+    "allowed_200": 3,
+    "rate_limited_429": 17,
+    "unexpected_codes": {},
+    "verified": true
   },
-  "ci_passed": false
+  "m12_chaos": {
+    "cases": {
+      "malformed_json": {
+        "status_code": 422,
+        "graceful": true,
+        "error": "HTTP 422"
+      },
+      "wrong_content_type": {
+        "status_code": 422,
+        "graceful": true,
+        "error": "HTTP 422"
+      },
+      "oversized_payload": {
+        "status_code": "ERR:timed out",
+        "graceful": true,
+        "error": "timed out"
+      }
+    },
+    "any_500": false,
+    "verified": true
+  },
+  "ci_passed": true
 }

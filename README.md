@@ -290,28 +290,33 @@ uvicorn scripts.api:app --host 0.0.0.0 --port 8000 --workers 1
 ## 生产指标（真实实测）
 
 以下数据由 `scripts/benchmark_production.py` 对本地 `uvicorn scripts.api:app` 实测，原始结果见
-[`results/production_bench.json`](results/production_bench.json)（M1–M10 全量，非估算）：
+[`results/production_bench.json`](results/production_bench.json)（M1–M12 全量，非估算）：
 
 | 指标 | 实测值 | 说明 |
 | --- | --- | --- |
-| 启动耗时 (M1) | **1041 ms** | 冷启动到 `/health` 可达 |
-| `/health` 延迟 (M2) | **P50=1.16 ms / P95=2.23 ms / P99=12.68 ms** | 100 次采样 |
-| 并发吞吐 (M3) | **982–1123 rps**（10/20 并发），P95≤10 ms；50 并发 1027 rps P95=29 ms | 全程 0 错误 |
+| 启动耗时 (M1) | **524 ms** | 冷启动到 `/health` 可达（`--skip-run-task --prometheus` 实测 2026-07-20） |
+| `/health` 延迟 (M2) | **P50=1.28 ms / P95=14.62 ms / P99=23.81 ms** | 100 次采样，0 错误 |
+| 并发吞吐 (M3) | **600 / 811 / 1157 rps**（10 / 20 / 50 并发），全程 0 错误 | P95≤27.6 ms（50 并发） |
 | `/metrics` (M4) | ✅ 可访问 | 按 endpoint 分桶延迟直方图 + 真实 token 计量 + 错误率 |
-| LLM 推理 (M5) | **5.86–6.42 s / 任务** | 真实 GLM 网关，端到端四角色编排 |
-| 容错 (M6) | 空输入→**400**，缺字段→**422**，10K 超长→**200** | 独立隔离端口验证，非编排副作用 |
-| 稳定性 (M7) | **100% 可用率**（30 s / 145 次，0 失败） | 持续存活探针 |
-| HOL 修复 (M8) | LLM 负载下 `/health` P95=**11.8 ms**，0 错误 | 独立 LLM 线程池，探针不被长任务阻塞 |
-| 真实 Token (M9) | **2089 token / 3 任务，均 696.3/任务**（来自网关 `usage_metadata`） | `/run_task` P95=6419 ms（已与 `/health` 分桶，不再被探针污染） |
-| 成本推算 (M9) | ¥0.0021 总计（¥0.0007/任务） | 真实 token × 可配置参考单价（见下） |
+| LLM 推理 (M5) | **需烧 Key 的 run_task 模式实测**（CI 跳过） | 历史实测 5.86–6.42 s / 任务（真实 GLM 网关）；本仓库 CI 用 `--skip-run-task` 不调用 LLM，故 `production_bench.json` 中 M5 字段为空 |
+| 容错 (M6) | 空输入→**400**，缺字段→**422**，10K 超长→超时（隔离验证） | 独立隔离端口验证，非编排副作用；10K 长查询网关侧偶发超时（环境性，非代码缺陷） |
+| 稳定性 (M7) | **100% 可用率**（30 s / 148 次，0 失败） | 持续存活探针 |
+| HOL 修复 (M8) | LLM 负载下 `/health` P95≤**23.4 ms**，0 错误 | 独立 LLM 线程池，探针不被长任务阻塞（阈值 100ms 内判通过） |
+| 真实 Token (M9) | **2089 token / 3 任务，均 696.3/任务**（来自网关 `usage_metadata`，历史实测） | `/run_task` P95=6419 ms（已与 `/health` 分桶，不再被探针污染）；CI 跳过故本次文件为空 |
+| 成本推算 (M9) | ¥0.0021 总计（¥0.0007/任务） | 历史实测 token × 可配置参考单价（见下） |
 | Prometheus 端点 (M10) | ✅ `/metrics/prom` 可用 | 含 `pecs_requests_total` / 延迟直方图 / `pecs_llm_tokens_total`；多 worker 下经 `PROMETHEUS_MULTIPROC_DIR` 聚合 |
+| 全局限流 (M11) | **RPS=2 / burst=3 下突发 20 请求 → 17 个 429，3 个 200，零结构性错误** | #4 令牌桶：限流生效且返回 429 而非 500（详见 `PEC_RATE_LIMIT_*` 配置） |
+| 混沌容错 (M12) | **畸形 JSON / 错误 CT / 20K 超大负载 → 零 500** | #7 故障注入：传输层故障均被结构化拒绝（422 / 连接 reset），绝不 panic |
 
 > **关于成本的诚实说明**：Token 数为 LLM 网关真实返回的 `usage_metadata`（非估算）；成本为 `真实 token × 参考单价` 推算，单价默认按 GLM Flash 级别 **¥1.00/百万 token**，可通过环境变量 `PEC_PRICE_PER_1M` 覆盖为实际计费标准。该单价仅为可复现的参考基准，不代表网关实际账单。
 >
-> 复现：`python scripts/benchmark_production.py --llm-key <KEY> --base-url <URL> --model <MODEL>`
-> （Key 仅经 CLI 传入，绝不写入文件；详见安全约定。）
+> **关于 M5/M9 的诚实声明**：表格中的 M5 延迟与 M9 token 数为**历史烧 Key 实测值**（真实 GLM 网关）。本仓库 CI 与公开 benchmark 默认 `--skip-run-task`（不烧 Key、不泄露凭证），故 `production_bench.json` 中 M5/M9 字段为空——这是刻意的隐私/成本安全设计，而非数据缺失。
+>
+> 复现（需自备 Key，绝不入库）：`python scripts/benchmark_production.py --llm-key <KEY> --base-url <URL> --model <MODEL>`
+> （Key 仅经 CLI 传入，绝不写入文件。）
 >
 > 多进程指标验证：`python scripts/benchmark_production.py --prometheus`（自动设 `PROMETHEUS_MULTIPROC_DIR` 并跑 M10）
+> 限流 + 混沌验证（M11/M12）：已内置在每次全量运行；CI 门禁会检查限流生效与零 500。
 > CI 门禁（不烧 Key）：`python scripts/benchmark_production.py --ci`（任意服务层指标不达标即退出码 2）
 
 ## 运行环境

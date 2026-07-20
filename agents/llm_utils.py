@@ -52,6 +52,11 @@ def get_llm(role: str = "default") -> ChatOpenAI:
             model=LLM_MODEL,
             temperature=temp,
             max_tokens=LLM_MAX_TOKENS,
+            # 客户端级超时：让底层 httpx socket 读有上限，
+            # 从而使 api.py 的 asyncio.wait_for 能真正中断被阻塞的 LLM 调用
+            # （否则同步 HTTP 读会卡住线程，链路级超时失效）。默认 60s，可经 env 覆盖。
+            timeout=float(os.environ.get("LLM_CALL_TIMEOUT", "60")),
+            max_retries=2,
         )
     return _llm_instances[role]
 

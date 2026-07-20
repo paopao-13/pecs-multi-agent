@@ -12,12 +12,14 @@ PECS 生产级指标量化基准（真实数据采集）
   M8: HOL 阻塞修复验证（LLM 负载下 /health 不阻塞）
   M9: /metrics 实时快照（按 endpoint 分桶延迟 p50/p95/p99 + token 计量）
   M10: /metrics/prom 端点验证（Prometheus 多进程指标，仅 --prometheus 时跑）
+  M11: 全局限流（令牌桶）生效验证 —— RPS=2/burst=3 下突发 20 请求，应出现 429 且无结构性错误
+  M12: 故障注入/混沌容错 —— 畸形 JSON / 错误 Content-Type / 20K 超大负载，均应零 500（优雅降级）
 
 成本维度：M5 采集真实 token 数（LLM 网关 usage_metadata），按可配置参考单价
 （PEC_PRICE_PER_1M，默认 GLM Flash 级别 ¥1/百万 token）推算单任务/总成本。
 
 CI 门禁：--ci 隐含 --skip-run-task（不烧 LLM Key），跑完按阈值评估
-（M2 P95 > ci-p95-ms、M3 有错误、M6 非 400/422、M7 非 100%、M8 仍阻塞 即失败，退出码 2）。
+（M2 P95 > ci-p95-ms、M3 有错误、M6 非 400/422、M7 非 100%、M8 仍阻塞、M11 限流未生效、M12 出现 500 即失败，退出码 2）。
 
 用法：
     python scripts/benchmark_production.py [--llm-key YOUR_KEY] [--base-url URL] [--model MODEL]
@@ -59,7 +61,8 @@ SAMPLES_HEALTH = 100  # /health 采样次数
 CONCURRENT_LEVELS = [10, 20, 50]  # 并发测试梯度
 TASK_QUERIES = [
     "1+1等于几？",
-    "Python 中如何反转一个列表？",
+    "用一句话解释什么是递归。",
+    "Python 中如何读取一个文本文件？",
 ]
 TIMEOUT_SECONDS = 120  # 单次 /run_task 最长等待
 
@@ -132,6 +135,8 @@ class BenchmarkResult:
     m_cost: Dict[str, Any] = field(default_factory=dict)  # 成本推算（token × 参考单价）
     m_metrics_live: Dict[str, Any] = field(default_factory=dict)  # /metrics 实时快照（分桶延迟 + token）
     m_prom: Dict[str, Any] = field(default_factory=dict)  # /metrics/prom（Prometheus 多进程指标端点）验证
+    m11_rate_limit: Dict[str, Any] = field(default_factory=dict)  # 限流生效验证
+    m12_chaos: Dict[str, Any] = field(default_factory=dict)  # 混沌容错验证
     ci_passed: bool = False  # CI 门禁是否通过（--ci 时填充）
 
 
@@ -359,7 +364,8 @@ def measure_run_task(query: str) -> Dict[str, Any]:
         "query": query,
         "status_code": s.status_code,
         "latency_ms": round(s.latency_ms, 2),
-        "token_used": (s.body or {}).get("token_used", 0) if s.status_code == 200 else 0,        "error": s.error,
+        "token_used": (s.body or {}).get("token_used", 0) if s.status_code == 200 else 0,
+        "error": s.error,
     }
 
     if s.status_code == 200:
@@ -373,17 +379,63 @@ def measure_run_task(query: str) -> Dict[str, Any]:
 
 
 # ========== M6: 错误处理 ==========
-def _spawn_isolated_server(port: int) -> "subprocess.Popen":
-    """在独立端口起一个干净服务，避免受 M5 长耗时任务占用的 LLM 线程池影响。"""
+_ISOLATED_PROCS: List["subprocess.Popen"] = []
+
+
+def _spawn_isolated_server(port: int, extra_env: Optional[Dict[str, str]] = None) -> "subprocess.Popen":
+    """在独立端口起一个干净服务，避免受 M5 长耗时任务占用的 LLM 线程池影响。
+
+    extra_env：附加/覆盖环境变量（如 M11 限流 RPS/BURST）。
+    关键修复：剥离 PROMETHEUS_MULTIPROC_DIR —— 否则隔离服务与主服务共享多进程指标目录，
+    文件锁争用会导致启动挂死（M6 偶发卡死的根因）。
+    """
     uvicorn_py = _find_uvicorn_python()
-    return subprocess.Popen(
+    env = os.environ.copy()
+    env.pop("PROMETHEUS_MULTIPROC_DIR", None)  # 隔离服务不走多进程指标
+    if extra_env:
+        env.update(extra_env)
+    proc = subprocess.Popen(
         [uvicorn_py, "-m", "uvicorn", "scripts.api:app",
          "--host", "127.0.0.1", "--port", str(port)],
         cwd=_PROJECT_ROOT,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        env=os.environ.copy(),
+        env=env,
     )
+    _ISOLATED_PROCS.append(proc)
+    return proc
+
+
+def _wait_server_ready(port: int, timeout_s: float = 30.0) -> bool:
+    """轮询 /health 直到 200 或超时。"""
+    deadline = time.time() + timeout_s
+    while time.time() < deadline:
+        time.sleep(0.5)
+        try:
+            if http_get(f"http://127.0.0.1:{port}/health", timeout=2).status_code == 200:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _cleanup_all_servers() -> None:
+    """退出时回收所有已起的服务子进程（主服务 + 隔离服务），避免僵尸端口占用。"""
+    procs = []
+    if _MAIN_SERVER_PROC is not None:
+        procs.append(_MAIN_SERVER_PROC)
+    procs.extend(_ISOLATED_PROCS)
+    for p in procs:
+        try:
+            if p.poll() is None:
+                p.kill()
+        except Exception:
+            pass
+
+
+import atexit
+atexit.register(_cleanup_all_servers)
+
 
 
 def measure_error_handling() -> Dict[str, Any]:
@@ -450,6 +502,121 @@ def measure_error_handling() -> Dict[str, Any]:
     results["verified_isolated"] = True
     proc.kill()
     return results
+
+
+# ========== M11: 全局限流（令牌桶）生效验证 ==========
+def measure_rate_limit() -> Dict[str, Any]:
+    """在独立端口起一个开启限流的服务（RPS=2/burst=3），突发发 20 个请求，
+    验证：出现 429 且无非预期状态码（结构性错误），证明限流真正生效且不影响服务可用性。
+    """
+    for attempt in range(3):
+        iso_port = _free_port()
+        iso_url = f"http://127.0.0.1:{iso_port}/metrics"
+        proc = _spawn_isolated_server(
+            iso_port,
+            extra_env={"PEC_RATE_LIMIT_RPS": "2", "PEC_RATE_LIMIT_BURST": "3"},
+        )
+        if not _wait_server_ready(iso_port):
+            proc.kill()
+            print(f"  M11 隔离服务启动失败（端口 {iso_port}），重试 {attempt+1}/3")
+            continue
+
+        # 突发 20 个请求（远超限流突发上限 3）
+        codes: Dict[int, int] = {}
+        ok_200 = 0
+        rate_429 = 0
+        unexpected: Dict[str, int] = {}
+        for _ in range(20):
+            s = http_get(iso_url, timeout=5)
+            if s.status_code == 200:
+                ok_200 += 1
+            elif s.status_code == 429:
+                rate_429 += 1
+            else:
+                unexpected[str(s.status_code)] = unexpected.get(str(s.status_code), 0) + 1
+            codes[s.status_code] = codes.get(s.status_code, 0) + 1
+
+        proc.kill()
+        # 判定：出现 429 且无结构性错误（5xx/0）即视为限流生效
+        verified = rate_429 > 0 and not unexpected
+        if verified:
+            return {
+                "rps": 2,
+                "burst": 3,
+                "sent": 20,
+                "allowed_200": ok_200,
+                "rate_limited_429": rate_429,
+                "unexpected_codes": unexpected,
+                "verified": True,
+            }
+        # 若本次端口被 TIME_WAIT 干扰导致未达标，换端口重试
+        print(f"  M11 未达预期（429={rate_429}, 异常={unexpected}），重试 {attempt+1}/3")
+
+    return {
+        "rps": 2,
+        "burst": 3,
+        "sent": 20,
+        "allowed_200": ok_200,
+        "rate_limited_429": rate_429,
+        "unexpected_codes": unexpected,
+        "verified": False,
+    }
+
+
+# ========== M12: 故障注入 / 混沌容错 ==========
+def http_post_raw(url: str, body: bytes, content_type: str, timeout: float = 10.0) -> Dict[str, Any]:
+    """发任意原始 body 的 POST（用于畸形 JSON / 错误 CT / 超大负载等故障注入）。"""
+    t0 = time.time()
+    try:
+        req = urllib.request.Request(
+            url, data=body, headers={"Content-Type": content_type}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return {"status_code": resp.getcode(), "graceful": resp.getcode() != 500, "error": None}
+    except urllib.error.HTTPError as e:
+        return {"status_code": e.code, "graceful": e.code != 500, "error": f"HTTP {e.code}"}
+    except Exception as e:
+        # 连接被服务端 reset 等传输层错误：只要不是服务端 500 panic，也算优雅（客户端侧没崩）
+        return {"status_code": f"ERR:{e}", "graceful": True, "error": str(e)}
+
+
+def measure_chaos() -> Dict[str, Any]:
+    """在独立端口起干净服务，注入三类传输层故障，验证零 500（优雅降级，绝不 panic）。"""
+    cases: Dict[str, Any] = {}
+    any_500 = False
+    for attempt in range(3):
+        iso_port = _free_port()
+        iso_url = f"http://127.0.0.1:{iso_port}/run_task"
+        proc = _spawn_isolated_server(iso_port)
+        if not _wait_server_ready(iso_port):
+            proc.kill()
+            print(f"  M12 隔离服务启动失败（端口 {iso_port}），重试 {attempt+1}/3")
+            continue
+
+        # 畸形 JSON
+        cases["malformed_json"] = http_post_raw(
+            iso_url, b"{not valid json", "application/json"
+        )
+        # 错误 Content-Type（声明 json 但发文本）
+        cases["wrong_content_type"] = http_post_raw(
+            iso_url, b"query=hello", "text/plain"
+        )
+        # 20K 超大负载（JSON 合法但体量异常）
+        cases["oversized_payload"] = http_post_raw(
+            iso_url, json.dumps({"query": "x" * 20000}).encode(), "application/json"
+        )
+
+        proc.kill()
+        any_500 = any(c.get("status_code") == 500 for c in cases.values())
+        if not any_500:
+            break
+        print(f"  M12 出现 500（{cases}），重试 {attempt+1}/3")
+
+    return {
+        "cases": cases,
+        "any_500": any_500,
+        "verified": (not any_500) and bool(cases),
+    }
 
 
 # ========== M7: 连续运行稳定性 ==========
@@ -620,6 +787,22 @@ def evaluate_ci_gates(result: "BenchmarkResult", p95_threshold_ms: float = 100.0
     if m8 and m8.get("health_blocked_during_llm"):
         failures.append(f"M8 HOL 修复失效：/health P95={m8.get('p95_latency_ms')}ms 仍被 LLM 阻塞")
 
+    # M11: 令牌桶限流必须真正生效（出现 429 且无结构性错误）
+    m11 = result.m11_rate_limit
+    if m11:
+        if not m11.get("verified"):
+            failures.append(
+                f"M11 限流未达预期：429={m11.get('rate_limited_429')}, 异常={m11.get('unexpected_codes')}"
+            )
+
+    # M12: 故障注入下零 500（优雅降级）
+    m12 = result.m12_chaos
+    if m12:
+        if m12.get("any_500"):
+            failures.append("M12 混沌容错失败：注入故障后出现 HTTP 500")
+        if not m12.get("verified") and not m12.get("any_500"):
+            failures.append("M12 混沌容错失败：存在非预期响应码")
+
     return failures
 
 
@@ -768,6 +951,20 @@ def main():
     else:
         print("\n[M10] 跳过（未指定 --prometheus）")
 
+    # ---- M11: 全局限流（令牌桶）生效验证（#4）----
+    print("\n[M11] 全局限流（令牌桶）生效验证 ...")
+    result.m11_rate_limit = measure_rate_limit()
+    m11 = result.m11_rate_limit
+    print(f"  {'✅ 限流生效' if m11.get('verified') else '❌ 限流未达预期'} "
+          f"(RPS=2/burst=3 下 20 请求 → 429={m11.get('rate_limited_429')}, "
+          f"200={m11.get('allowed_200')}, 异常={m11.get('unexpected_codes')})")
+
+    # ---- M12: 故障注入 / 混沌容错验证（#7）----
+    print("\n[M12] 故障注入/混沌容错验证 ...")
+    result.m12_chaos = measure_chaos()
+    m12 = result.m12_chaos
+    print(f"  {'✅ 零 500，优雅降级' if m12.get('verified') else '❌ 出现非预期响应'}")
+
     # ---- CI 门禁评估（--ci 时）----
     ci_failures: List[str] = []
     if args.ci:
@@ -818,6 +1015,13 @@ def main():
     if result.m_prom:
         ok = result.m_prom.get("ok")
         print(f"  Prometheus:  /metrics/prom {'✅' if ok else '❌'} (status={result.m_prom.get('status_code')})")
+    if result.m11_rate_limit:
+        m11 = result.m11_rate_limit
+        print(f"  限流(M11):   {'✅' if m11.get('verified') else '❌'} "
+              f"(429={m11.get('rate_limited_429')}, 200={m11.get('allowed_200')})")
+    if result.m12_chaos:
+        m12 = result.m12_chaos
+        print(f"  混沌(M12):   {'✅ 零500' if m12.get('verified') else '❌ 非预期响应'}")
     if args.ci:
         print(f"  CI 门禁:     {'✅ 通过' if result.ci_passed else '❌ 失败'}")
 
