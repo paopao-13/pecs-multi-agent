@@ -558,7 +558,7 @@ def _latency_stats(details: List[Dict[str, Any]]) -> Optional[Dict[str, float]]:
     """从逐题详情提取端到端耗时分布（秒），用于真实环境延迟可观测。
 
     逐题 elapsed_seconds 由 evaluate_gaia_official 记录（单题超时/执行总时长）。
-    返回 p50/p95/min/max/mean，供 README 与面试如实展示"一个真实 GAIA 任务的总时延"。
+    返回 p50/p95/min/max/mean，供 README 如实展示"一个真实 GAIA 任务的总时延"。
     """
     import statistics
     vals = [r.get("elapsed_seconds") for r in details if r.get("elapsed_seconds") is not None]
