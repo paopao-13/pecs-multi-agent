@@ -140,7 +140,7 @@ sequenceDiagram
 > - **ReAct 基线**：同一模型 + 同一工具集 + 同一题目，保证对比公平性
 > - **Token 统计**：端到端对比（含 LLM 调用 + 工具执行全流程），非单次 API 调用
 >
-> **一句话总领（面试防追问）**：PECS 在 GAIA 上与 ReAct **无统计显著差异**（McNemar p=1.0）；唯一显著且真实验证的优势是 **WebShop 真实环境 +25pp**（来自"打破 search 循环"这一具体启发式，非多角色数量）。PECS 的核心价值 = 计算类/规则打破类稳定优势 + 生产级工程（限流/可观测/可恢复）+ **成本可预测性**。本仓库刻意不做"多智能体全方位碾压单 Agent"的叙事——那经不起 senior 追问。
+> **一句话总领**：PECS 在 GAIA 上与 ReAct **无统计显著差异**（McNemar p=1.0）；唯一显著且真实验证的优势是 **WebShop 真实环境 +25pp**（来自"打破 search 循环"这一具体启发式，非多角色数量）。PECS 的核心价值 = 计算类/规则打破类稳定优势 + 生产级工程（限流/可观测/可恢复）+ **成本可预测性**。本仓库刻意不做"多智能体全方位碾压单 Agent"的叙事。
 >
 > **接入官方数据集方法**：参见 [EXPERIMENT.md](EXPERIMENT.md) 中「官方数据集接入」章节
 
@@ -646,7 +646,7 @@ pecs-multi-agent/
 | [docs/archive/testing.md](docs/archive/testing.md) | TDD 实践与 bug 发现记录（归档） |
 | [docs/API.md](docs/API.md) | API接口文档 |
 | [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告（含已知逃逸边界与加固路线） |
-| [docs/FAILURE_CASES.md](docs/FAILURE_CASES.md) | 失败案例集（真实 GAIA 失败题 + 修复映射，面试加分项） |
+| [docs/FAILURE_CASES.md](docs/FAILURE_CASES.md) | 失败案例集（真实 GAIA 失败题 + 修复映射） |
 | [docs/MONITORING.md](docs/MONITORING.md) | 监控告警方案 |
 | [docs/VERSIONING.md](docs/VERSIONING.md) | 版本管理规范 |
 | [docs/FEEDBACK.md](docs/FEEDBACK.md) | 用户反馈记录 |
