@@ -33,8 +33,9 @@ def web_search(args: dict) -> str:
     if not query:
         return "错误：缺少 query 参数"
 
-    # 优先匹配 mock 数据（benchmark 评测可复现性保证）
-    # mock 数据覆盖了所有 GAIA/WebShop 样例查询，确保评测结果一致
+    # 优先匹配 mock 数据（内置样例评测可复现性保证）
+    # 注意：mock 为内置样例【预置的标准答案键】（开卷），仅保证内置 33 题评测稳定可复现；
+    # 它测的是编排/计算能力，不代表真实检索。真实检索能力以 GAIA 官方 53 题（走 Tavily/DDG 真实 API）为准。
     mock_result = _mock_search(query, num_results)
     if not mock_result.startswith("[模拟搜索] 未找到"):
         return mock_result

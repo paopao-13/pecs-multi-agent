@@ -108,6 +108,17 @@ class SecurityChecker(ast.NodeVisitor):
             func_name = node.func.id
             if func_name in FORBIDDEN_CALLS:
                 self.violations.append(f"第{node.lineno}行: 禁止调用 '{func_name}()'")
+            # hasattr 反射绕过防护：visit_Attribute 只拦 obj.__x__ 这种属性访问写法，
+            # 拦不住 hasattr(obj, "__x__") 这种函数式反射。这里对 hasattr 的第二个参数
+            # （属性名字符串）做 dunder 检查，防止通过反射摸到 __class__/__builtins__ 等。
+            if func_name == "hasattr" and len(node.args) >= 2:
+                second = node.args[1]
+                if isinstance(second, ast.Constant) and isinstance(second.value, str):
+                    attr = second.value
+                    if attr.startswith("__") and attr.endswith("__"):
+                        self.violations.append(
+                            f"第{node.lineno}行: 禁止通过 hasattr 探测双下划线属性 '{attr}'"
+                        )
         # 检查属性调用：如 obj.__import__、obj.system 等
         if isinstance(node.func, ast.Attribute):
             attr_name = node.func.attr
@@ -203,7 +214,9 @@ def _build_safe_globals():
             "any": any, "all": all, "format": format,
             "repr": repr, "hash": hash, "bin": bin, "oct": oct, "hex": hex,
             "chr": chr, "ord": ord, "ascii": ascii,
-            "hasattr": hasattr,  # 只读属性检查，不允许 setattr/delattr
+            # 只读属性检查；但 hasattr(obj, "__dunder__") 的反射式探测已在
+            # SecurityChecker.visit_Call 中拦截（getattr/setattr/delattr 本身在 FORBIDDEN_CALLS）
+            "hasattr": hasattr,
         },
         # 预导入的安全模块（直接放对象，不暴露 __import__）
         "math": math,

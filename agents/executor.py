@@ -18,7 +18,7 @@ Executor Agent —— 执行者
 from agents.heuristics import build_heuristic_args
 from agents.llm_utils import call_llm
 from graph.token_budget import estimate_tokens, record_token_usage
-from tools import execute_tool
+from tools import execute_tool, is_tool_success
 from config import MAX_RETRIES
 
 # Executor 的系统提示词
@@ -157,7 +157,7 @@ def executor_node(state: dict) -> dict:
         "action": action,
         "description": description,
         "result": result,
-        "success": not result.startswith("错误") and not result.startswith("执行错误") and "失败" not in result,
+        "success": is_tool_success(result),
     }
     results.append(result_entry)
 
@@ -179,6 +179,7 @@ def executor_node(state: dict) -> dict:
         "token_used": token_used,
         "role_token_used": role_token_used,
         "budget_events": budget_events,
+        "step_count": len(results),  # 真实已执行步数，供 API 上报（修复 step_count 恒为 0）
         "retry_feedback": "",  # 清除重试反馈
         "logs": logs,
     }

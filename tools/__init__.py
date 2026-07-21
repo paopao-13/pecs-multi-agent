@@ -38,6 +38,21 @@ TOOL_DESCRIPTIONS = {
 }
 
 
+# 工具执行结果中的错误标记前缀（用于判定执行成功/失败）
+_ERROR_MARKERS = ("错误", "执行错误", "安全检查未通过")
+
+
+def is_tool_success(result: str) -> bool:
+    """判定工具返回结果是否表示执行成功（不含错误标记）。
+
+    仅依据显式错误前缀判定，避免把含"失败"字样的正常值
+    （如统计结果"失败率 = 0.05"）误判为执行失败。
+    """
+    if not result:
+        return False
+    return not result.startswith(_ERROR_MARKERS)
+
+
 def execute_tool(action: str, args: dict) -> str:
     """
     执行工具调用

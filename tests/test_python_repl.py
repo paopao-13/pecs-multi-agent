@@ -100,3 +100,22 @@ def test_block_double_underscore_import():
     result = python_repl({"code": '__import__("os")'})
     assert "安全检查未通过" in result
     assert "import" in result
+
+
+def test_block_hasattr_dunder_reflection():
+    """hasattr(obj, "__class__") 反射式探测双下划线属性必须被拦截。
+
+    这是 dunder 属性访问（visit_Attribute）拦不住的函数式反射绕过：
+    obj.__class__ 会被拦截，但 hasattr(obj, "__class__") 之前是放行的，
+    可借此摸到 __builtins__ / __globals__ 链路。修复见 python_repl.SecurityChecker.visit_Call。
+    """
+    result = python_repl({"code": "hasattr(math, '__class__')"})
+    assert "安全检查未通过" in result
+    assert "hasattr" in result or "__class__" in result
+
+
+def test_hasattr_normal_attr_allowed():
+    """正常 hasattr(math, 'sqrt') 不应被拦截（仅拦截 dunder 反射）"""
+    result = python_repl({"code": "print(hasattr(math, 'sqrt'))"})
+    assert "安全检查未通过" not in result
+    assert "True" in result

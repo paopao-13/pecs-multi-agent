@@ -57,6 +57,24 @@ def test_create_initial_state():
     assert state["scheduler_decisions"] == []
     # 日志
     assert state["logs"] == []
+    # step_count 字段存在且默认 0（修复 API 上报恒为 0 的缺陷）
+    assert "step_count" in state
+    assert state["step_count"] == 0
+
+
+def test_step_count_updated_by_executor():
+    """Executor 写回 step_count = 已执行步数，而非恒为 0"""
+    from agents.executor import executor_node
+
+    state = create_initial_state("计算 2 的 100 次方")
+    state["plan"] = [
+        {"id": 1, "action": "python", "description": "计算 2^100",
+         "args": {"code": "print(2**100)"}, "status": "pending",
+         "result": None, "retry_count": 0},
+    ]
+    updated = executor_node(dict(state))
+    assert updated.get("step_count") == 1
+    assert updated["results"][0]["success"] is True
 
 
 def test_route_after_critic_pass():

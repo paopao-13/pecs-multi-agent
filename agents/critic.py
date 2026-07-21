@@ -23,6 +23,7 @@ Token 预算联动：
 """
 from agents.llm_utils import call_llm_json
 from graph.token_budget import get_budget_policy, record_token_usage
+from tools import is_tool_success
 
 # Critic 的系统提示词
 CRITIC_SYSTEM_PROMPT = """你是一个严格的质量评审专家（Critic），负责评估任务执行结果的质量。
@@ -163,7 +164,7 @@ def _fast_evaluate(result: dict) -> dict:
     text = result.get("result", "")
     success = result.get("success", False)
 
-    if not success or "错误" in text or "失败" in text:
+    if not success or not is_tool_success(text):
         return {
             "accuracy": 2, "consistency": 2, "completeness": 2,
             "overall": 2.0, "feedback": "执行结果包含错误，请重试。"

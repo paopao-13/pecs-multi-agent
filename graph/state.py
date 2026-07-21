@@ -90,6 +90,7 @@ class AgentState(BaseModel):
     # ===== 反思循环 =====
     reflection: str = ""                                # 上一轮的反思总结（供下一轮 Planner 参考）
     iteration: int = 0                                  # 当前循环轮次
+    step_count: int = 0                                 # 已执行步骤数（= len(results)），供 API 上报
 
     # ===== 执行日志 =====
     logs: List[str] = Field(default_factory=list)       # 执行过程日志（供 Web 界面展示）
