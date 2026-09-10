@@ -87,6 +87,7 @@ from config import (  # noqa: E402
     MAX_QUERY_CHARS,
     RUN_MODE,
 )
+from scripts.auth import assert_thread_owner, require_api_key  # noqa: E402
 
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起。
 #
@@ -571,9 +572,12 @@ async def metrics_prom() -> Response:
 
 
 @app.post("/run_task", response_model=RunTaskResponse, dependencies=[_rate_limit_dep("run_task")])
-async def run_task(req: RunTaskRequest) -> RunTaskResponse:
+async def run_task(
+    req: RunTaskRequest,
+    tenant: str = Depends(require_api_key),
+) -> RunTaskResponse:
     # 输入校验优先于依赖可用性检查：即便 LLM 未配置，坏输入也应得到明确的 400/413，
-    # 而不是被 503（依赖不可用）吞掉，便于上游正确区分“请求错误”与“服务不可用”
+    # 而不是被 503（依赖不可用）吞掉，便于上游正确区分"请求错误"与"服务不可用"
     validation_error = _validate_query(req.query)
     if validation_error:
         _record("run_task", 0.0, error=True)
@@ -581,6 +585,11 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
             status_code=400 if validation_error == _EMPTY_QUERY_MSG else 413,
             detail=validation_error,
         )
+
+    # 租户归属校验：传入 thread_id 时必须属于当前租户，否则 404（不泄露存在性）。
+    # 放在输入校验之后、LLM 可用性检查之前——越权是请求错误，不该被 503 掩盖。
+    if req.thread_id:
+        assert_thread_owner(req.thread_id, tenant)
 
     # 启动自检未通过 → fail-fast 真正 503，让负载均衡/编排器正确摘流，
     # 而非在图深处崩出难懂异常（也避免空跑消耗线程池）
@@ -657,12 +666,18 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
 
 # ---------- 链路回放（复用已持久化的检查点，不重跑图）----------
 @app.get("/api/replay/{thread_id}", dependencies=[_rate_limit_dep("replay")])
-async def replay(thread_id: str) -> Dict[str, Any]:
+async def replay(
+    thread_id: str,
+    tenant: str = Depends(require_api_key),
+) -> Dict[str, Any]:
     """回放某个 thread_id 的完整执行链路。
 
     数据来源全部是既有资产：SQLite 检查点（graph/builder）+ GraphTraceLogger
     + 成本归因，本端点只做「读取并暴露」，不重新执行任务（避免二次计费与副作用）。
     """
+    # 越权回放会读到别人的任务内容（query / 结果 / token），必须归属校验
+    assert_thread_owner(thread_id, tenant)
+
     from graph.builder import load_task_state
     from logger.graph_trace_logger import GraphTraceLogger
     from metrics.cost_attribution import attribute_cost
