@@ -142,6 +142,53 @@
 
 ---
 
+## 缺陷 5（P1 跨平台正确性）：敏感路径黑名单「每条规则只在自身平台生效」
+
+### 5.1 问题分析
+- **位置**：`tools/file_reader.py`、`tools/file_parser.py`（两个工具各自内联了一份**完全相同**的校验逻辑）
+- **发现方式**：**CI 抓出来的** —— GitHub Actions `unit-test` job（ubuntu-latest）变红，唯一失败用例
+  `tests/test_file_reader.py::test_read_system_path_windows`，而本地 Windows 开发机上该用例通过。
+  这正是「只在另一平台暴露」的典型缺陷：不接 CI 就发现不了。
+- **症状**：
+  ```text
+  assert ('禁止' in "错误：文件不存在 'C:\\Windows\\System32\\config\\SAM'" or '敏感' in ...)
+  ```
+  在 Linux 上，Windows 敏感路径没有被判为泄露，而是走到了「文件不存在」。
+- **根本原因**：判定语句是 `os.path.realpath(path).lower().startswith(prefix.lower())`，
+  而 **`realpath` 是平台相关的**：
+  - Linux 上 `"C:\Windows\x"` 没有盘符概念 → 被解析成 `<cwd>/C:\Windows\x`
+    → 永远匹配不上 `"C:\Windows"` 前缀（Windows 侧规则在 Linux 上是**死代码**）；
+  - Windows 上 `"/etc/passwd"` → 被解析成 `"X:\etc\passwd"`
+    → 永远匹配不上 `"/etc"` 前缀（POSIX 侧规则在 Windows 上是**死代码**）。
+  即黑名单同时在两个平台各失效一半，攻击面取决于运行平台（低危但真实）。
+- **附带发现**：`test_read_path_traversal` 之所以通过，实际是被**隐藏文件规则**拦下的
+  （`".."` 也满足 `startswith(".")`），并非在测敏感目录规则 —— 测试名与真实机制不符。
+
+### 5.2 修复步骤
+1. 抽出共用守卫 `tools/path_guard.py`：`norm_sep()` 把分隔符统一为 `/` 并小写；
+   `is_forbidden_path()` **同时比对「原始输入」与「realpath 结果」**
+   （只查 realpath 会随平台失效，只查原始输入则可被 symlink / 相对路径绕过，两者都查才完整）。
+2. `file_reader` / `file_parser` 均改为复用该守卫，删除两份重复内联实现
+   （顺带清掉 `file_parser` 里未被使用的 `safe_base` 死变量）。
+
+### 5.3 修改范围
+- `tools/path_guard.py`：新增（共用守卫）
+- `tools/file_reader.py`、`tools/file_parser.py`：改为调用共用守卫
+- `tests/test_file_reader.py`：新增跨平台回归用例（含显式模拟 Linux / Windows `realpath` 语义）
+
+### 5.4 验证方法
+- `pytest tests/test_file_reader.py`（本地 Windows）。
+- **关键**：新增 `test_windows_path_blocked_under_linux_realpath_semantics` 与
+  `test_posix_path_blocked_under_windows_realpath_semantics` —— 直接把另一平台的 `realpath`
+  结果作为参数注入，锁定「不依赖平台」的行为，避免再次出现"本地绿、CI 红"。
+- 完整套件 `pytest -m "not slow and not requires_api"`（eval / business 双模式）。
+
+### 5.5 风险评估
+- **风险**：低。仅扩大拦截范围（原「放行」的路径现被拒），不会放行任何原先被拒的路径；
+  正常项目文件读取路径不受影响（已由 `test_read_normal_file` 覆盖）。
+
+---
+
 ## 总结：修改文件清单
 
 | 文件 | 改动 | 严重度 |
@@ -152,8 +199,11 @@
 | `agents/critic.py` | `_fast_evaluate` 用 `is_tool_success` 去误判 | P1 |
 | `graph/state.py` | `AgentState` 加 `step_count` 字段 | P3 |
 | `tools/web_search.py` | mock 注释诚实化 | P1 |
+| `tools/path_guard.py` | 新增：路径安全共用守卫（分隔符归一 + 原始路径/realpath 双比对） | P1 |
+| `tools/file_reader.py` / `tools/file_parser.py` | 改为复用共用守卫，消除两份重复且平台半失效的内联实现 | P1 |
 | `tests/test_security_fix.py` | 新增：hasattr 反射拦截单测 | — |
 | `tests/test_tool_success.py` | 新增：`is_tool_success` 单测 | — |
 | `tests/test_state_step_count.py` | 新增：step_count 字段单测 | — |
+| `tests/test_file_reader.py` | 新增：跨平台敏感路径回归（模拟另一平台 realpath 语义） | — |
 
 > 全部改动 **不 push**（filter-repo 教训，push 须用户确认）。

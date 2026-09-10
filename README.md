@@ -142,7 +142,7 @@ sequenceDiagram
 >
 > **一句话总领**：PECS 在 GAIA 上与 ReAct **无统计显著差异**（McNemar p=1.0）；唯一显著且真实验证的优势是 **WebShop 真实环境 +25pp**（来自"打破 search 循环"这一具体启发式，非多角色数量）。PECS 的核心价值 = 计算类/规则打破类稳定优势 + 生产级工程（限流/可观测/可恢复）+ **成本可预测性**。本仓库刻意不做"多智能体全方位碾压单 Agent"的叙事。
 >
-> **接入官方数据集方法**：参见 [EXPERIMENT.md](EXPERIMENT.md) 中「官方数据集接入」章节
+> **接入官方数据集方法**：直接运行 `python run_gaia_official.py`（默认评测 GAIA L1 validation 53 题，自动生成 `results/gaia_official_*.json`）；历史方案说明见 [docs/archive/EXPERIMENT.md](docs/archive/EXPERIMENT.md) 中「官方数据集接入」章节
 
 **实验环境**：内置 33 题与 WebShop 12 题均基于 DeepSeek-chat 实测（temperature 按角色 0.0~0.5；**基准评测开启 `PEC_DETERMINISTIC=1` 固定全 0 以保证数字可复现、可 defense**）；GAIA 官方 53 题同样基于 DeepSeek-chat（bug 修复后重跑验证）。GLM-4.7-Flash / Qwen 配置已在 `config.py` 预留但未实测，不纳入结论。| Python 3.10.11 | langgraph 0.2.x | 2026-07-19
 
@@ -263,7 +263,7 @@ sequenceDiagram
 
 > 上表区分两种消融模式：完全移除型验证角色存在必要性，功能关闭型验证具体功能模块价值，保证实验单一变量严谨性。
 > 完整消融配置见 `ablation_configs/`，一键运行 `bash scripts/run_all_ablation.sh`
-> 消融实验详细说明见 [EXPERIMENT.md](EXPERIMENT.md)
+> 消融实验详细说明见 [docs/archive/EXPERIMENT.md](docs/archive/EXPERIMENT.md)
 
 ### 统计显著性说明
 
@@ -525,7 +525,7 @@ PEC_SKIP_LLM_PROBE=1 python -m uvicorn scripts.api:app --port 8000
 | 安全沙箱拦截演示 | `python demos/security_sandbox_demo.py` | 展示 AST 预检查拦截 8 种攻击代码 + 白名单沙箱执行合法代码 | 否 |
 | Token 降级调度演示 | `python demos/token_budget_demo.py` | 展示 70%/85%/95% 三级降级 + 角色独立配额机制 | 否 |
 | AI 内容生成 Pipeline | `python demos/content_pipeline_demo.py` | 文案生成 → 批量生成（预算三级降级）→ LLM 自动评测 → A/B 选优 → 成本归因 | 否 |
-| PECS vs ReAct 对比 | `python demos/pecs_vs_react_demo.py` | 单任务对比 + 28 题批量汇总数据 | 否（有 Key 更完整） |
+| PECS vs ReAct 对比 | `python demos/pecs_vs_react_demo.py` | 单任务对比 + 33 题批量汇总数据 | 否（有 Key 更完整） |
 | 批量任务执行 | `python demos/demo_batch_task.py` | 3 种批量执行方式：自定义列表/GAIA Mock/WebShop Mock | 是 |
 | 自定义 Critic 扩展 | `python demos/custom_critic_override_demo.py` | 继承原生 Critic 增加效率评分维度，注入 LangGraph 图 | 是 |
 
@@ -609,8 +609,8 @@ pecs-multi-agent/
 ├── requirements.txt       # 依赖
 ├── .env.example           # 环境变量示例
 ├── ARCHITECTURE.md        # 架构设计文档
-├── EXPERIMENT.md          # 实验复现文档
 ├── CHANGELOG.md           # 版本变更日志
+├── CONTRIBUTING.md        # 贡献指南
 │
 ├── agents/                # 四个 Agent 角色
 │   ├── planner.py
@@ -628,14 +628,18 @@ pecs-multi-agent/
 ├── tools/                 # 工具集
 │   ├── python_repl.py     # Python 沙箱（AST 安全检查）
 │   ├── web_search.py      # Web 搜索
-│   ├── file_reader.py
+│   ├── web_browser.py     # 网页抓取与正文提取
+│   ├── file_reader.py     # 文本文件读取（含路径安全校验）
+│   ├── file_parser.py     # PDF / Excel / CSV / 图片解析
+│   ├── multimodal.py      # 多模态附件预处理（可插拔后端）
 │   ├── api_caller.py
 │   ├── webshop.py
+│   ├── path_guard.py      # 路径安全守卫（敏感目录/隐藏文件，跨平台生效）
 │   ├── wrapper.py         # 工具统一包装器（超时/异常分类/熔断/幂等/权限）
 │   └── content_pipeline.py # AI 内容生成 Pipeline 工具（仅 business 模式注册）
 │
 ├── benchmarks/            # 基准评估
-│   ├── gaia_eval.py       # GAIA Level 1（28题）
+│   ├── gaia_eval.py       # GAIA Level 1（33题）
 │   ├── react_baseline.py  # ReAct 基线
 │   ├── webshop_eval.py    # WebShop（12题，真实 WebShop-small 采样）
 │   ├── cost_eval.py       # 成本消融
@@ -699,16 +703,15 @@ pecs-multi-agent/
 │   └── index.html         # Web 界面
 │
 ├── docs/                  # 工程文档
-│   ├── TECH_SELECTION.md  # 技术选型决策报告
-│   ├── PERFORMANCE.md     # 性能瓶颈分析
-│   ├── DEPLOYMENT.md      # 生产部署方案
-│   ├── archive/testing.md # TDD 实践与 bug 发现记录（归档）
-│   ├── API.md             # API接口文档
-│   ├── SECURITY_AUDIT.md  # 安全审计报告
-│   ├── MONITORING.md      # 监控告警方案
-│   ├── VERSIONING.md      # 版本管理规范
-│   ├── FEEDBACK.md        # 用户反馈记录
-│   └── CODE_REVIEW.md     # 代码评审流程
+│   ├── TECHNICAL_REPORT.md       # 技术报告（设计取舍 / 实验结论 / 局限）
+│   ├── SECURITY_AUDIT.md         # 安全审计报告（含已知逃逸边界）
+│   ├── FAILURE_CASES.md          # 失败案例集（真实 GAIA 失败题 + 修复映射）
+│   ├── FIX_PLAN.md               # 缺陷修复计划与状态
+│   ├── GAIA_SCORE_UPGRADE_SPEC.md # GAIA 提分能力规格说明
+│   ├── GAIA_RERUN_PROMPT.md      # GAIA 本机重跑操作指引
+│   ├── LOCAL_EXEC_CHECKLIST.md   # 本机执行检查清单
+│   ├── webshop_local_runbook.md  # WebShop 本地部署与运行手册
+│   └── archive/                  # 历史归档（选型/性能/部署/API/监控/版本/反馈/评审/实验复现等）
 │
 ├── Dockerfile             # 容器化部署
 │
@@ -721,13 +724,13 @@ pecs-multi-agent/
 2. **串行执行**：四个角色为串行执行，无依赖步骤可并行化优化，暂未实现
 3. **搜索优先级**：Web 搜索默认优先使用真实 DuckDuckGo 搜索，失败时回退到 mock 数据保证可运行性
 4. **Synthesizer 边界情况**：极少数情况下 simple 任务的快速综合路径会遗漏关键信息（概率 < 5%，不影响评测结果）
-5. **样例集规模有限**：33道GAIA+12道WebShop为内置样例，非官方完整测试集，需接入真实数据集验证
+5. **样例集规模仍有限**：内置 33 题 + WebShop 12 题为小样本；官方 GAIA **Level 1 validation 53 题已完成实测**（PECS 26.4% vs ReAct 24.5%，McNemar p=1.0 不显著），但 GAIA 官方全集（L1–L3，165/466 题）与 WebShop 全量 goals 尚未接入，故上述结论仍属**方向性信号**而非统计显著承诺
 
 ## 未来优化方向
 
 | 方向 | 当前状态 | 优化目标 | 优先级 |
 |------|----------|----------|:------:|
-| 官方数据集接入 | 内置样例集 | 接入GAIA 466题 + 真实WebShop环境 | P0 |
+| 官方数据集扩容 | 已接入 GAIA L1 validation（53 题）；WebShop 真实环境已跑通（12 题采样） | 扩容至 GAIA 官方全集（L1–L3，165/466 题）+ WebShop 全量 goals | P1 |
 | 并行执行 | 四角色串行 | 无依赖步骤并行化，降低延迟 | P1 |
 | 启发式泛化 | 仅覆盖benchmark模式 | 基于embedding相似度的通用缓存 | P1 |
 | 多模型支持 | GLM/DeepSeek/Qwen | 扩展支持 GPT-4/Claude 等更多模型 | P2 |
@@ -738,21 +741,25 @@ pecs-multi-agent/
 
 | 文档 | 说明 |
 |------|------|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构设计文档（8章节） |
-| [EXPERIMENT.md](EXPERIMENT.md) | 实验复现文档 |
-| [docs/TECH_SELECTION.md](docs/TECH_SELECTION.md) | 技术选型决策报告 |
-| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 性能瓶颈分析 |
-| [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) | 生产部署方案 |
-| [docs/archive/testing.md](docs/archive/testing.md) | TDD 实践与 bug 发现记录（归档） |
-| [docs/API.md](docs/API.md) | API接口文档 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架构设计文档 |
+| [docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md) | 技术报告（设计取舍 / 实验结论 / 局限） |
 | [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告（含已知逃逸边界与加固路线） |
 | [docs/FAILURE_CASES.md](docs/FAILURE_CASES.md) | 失败案例集（真实 GAIA 失败题 + 修复映射） |
-| [docs/MONITORING.md](docs/MONITORING.md) | 监控告警方案 |
-| [docs/VERSIONING.md](docs/VERSIONING.md) | 版本管理规范 |
-| [docs/FEEDBACK.md](docs/FEEDBACK.md) | 用户反馈记录 |
-| [docs/CODE_REVIEW.md](docs/CODE_REVIEW.md) | 代码评审流程 |
+| [docs/FIX_PLAN.md](docs/FIX_PLAN.md) | 缺陷修复计划与状态 |
+| [docs/GAIA_SCORE_UPGRADE_SPEC.md](docs/GAIA_SCORE_UPGRADE_SPEC.md) | GAIA 提分能力规格说明 |
+| [docs/GAIA_RERUN_PROMPT.md](docs/GAIA_RERUN_PROMPT.md) | GAIA 本机重跑操作指引 |
+| [docs/LOCAL_EXEC_CHECKLIST.md](docs/LOCAL_EXEC_CHECKLIST.md) | 本机执行检查清单 |
+| [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md) | WebShop 本地部署与运行手册 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更日志 |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 |
+
+历史归档文档（早期版本的选型 / 方案 / 评审记录，保留以呈现工程演化过程）：
+
+| 文档 | 说明 |
+|------|------|
+| [docs/archive/](docs/archive/) | 归档目录：技术选型、性能分析、部署方案、API 文档、监控告警、版本管理、用户反馈、代码评审、可行性分析、实现计划等 |
+| [docs/archive/EXPERIMENT.md](docs/archive/EXPERIMENT.md) | 实验复现文档 |
+| [docs/archive/testing.md](docs/archive/testing.md) | TDD 实践与 bug 发现记录 |
 
 ## License
 
