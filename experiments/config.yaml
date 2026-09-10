@@ -47,6 +47,14 @@ execution:
   max_retries: 3
   use_heuristics: true
 
+# P0 生产化增强：工具统一包装器
+# 所有开关默认关闭/等同改造前行为，eval 模式（跑评测）不受影响
+tools:
+  # 总开关：false 时 execute_tool 走改造前原路径
+  wrapper_enabled: false
+  # 单工具超时（秒）
+  timeout_sec: 15
+
 evaluation:
   gaia_samples: 28
   webshop_samples: 6

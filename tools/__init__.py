@@ -13,6 +13,9 @@ from tools.api_caller import api_caller
 from tools.webshop import webshop_select
 from tools.multimodal import multimodal_process
 
+from config import TOOL_WRAPPER_ENABLED
+from tools.wrapper import invoke_tool
+
 # 工具注册表：action名称 → 工具函数
 TOOL_REGISTRY = {
     "search": web_search,
@@ -53,21 +56,34 @@ def is_tool_success(result: str) -> bool:
     return not result.startswith(_ERROR_MARKERS)
 
 
-def execute_tool(action: str, args: dict) -> str:
+def execute_tool(action: str, args: dict, context: dict = None) -> str:
     """
     执行工具调用
 
     参数:
         action: 工具名称（search / python / file_read / api_call）
         args: 工具参数字典
+        context: 可选的调用上下文 {thread_id, node_name, iteration}，
+                 仅包装器开启时用于结构化日志；不传不影响功能
 
     返回:
-        工具执行结果字符串
+        工具执行结果字符串（失败时以 _ERROR_MARKERS 前缀开头）
+
+    说明:
+        TOOL_WRAPPER_ENABLED=false（默认）时走改造前的原路径，行为逐字一致；
+        开启后走 tools/wrapper.py，获得超时、异常分类、结构化日志。
     """
     tool_fn = TOOL_REGISTRY.get(action)
     if tool_fn is None:
         return f"错误：未知工具 '{action}'，可用工具：{list(TOOL_REGISTRY.keys())}"
-    try:
-        return tool_fn(args)
-    except Exception as e:
-        return f"工具执行失败 [{action}]: {type(e).__name__}: {str(e)}"
+
+    if not TOOL_WRAPPER_ENABLED:
+        # ---- 原路径：与改造前逐字一致，保证 eval 模式行为不变 ----
+        try:
+            return tool_fn(args)
+        except Exception as e:
+            return f"工具执行失败 [{action}]: {type(e).__name__}: {str(e)}"
+
+    # ---- 包装路径：超时 + 异常分类 + 结构化日志 ----
+    result, _error_type, _duration = invoke_tool(tool_fn, action, args, context=context)
+    return result
