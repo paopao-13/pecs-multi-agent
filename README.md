@@ -711,7 +711,8 @@ pecs-multi-agent/
 │   ├── GAIA_RERUN_PROMPT.md      # GAIA 本机重跑操作指引
 │   ├── LOCAL_EXEC_CHECKLIST.md   # 本机执行检查清单
 │   ├── webshop_local_runbook.md  # WebShop 本地部署与运行手册
-│   └── archive/                  # 历史归档（选型/性能/部署/API/监控/版本/反馈/评审/实验复现等）
+│   ├── VERSIONING.md             # 版本管理规范（SemVer / Tag / Release 流程）
+│   └── archive/                  # 历史归档（选型/性能/部署/API/监控/反馈/评审/实验复现等）
 │
 ├── Dockerfile             # 容器化部署
 │
@@ -751,13 +752,14 @@ pecs-multi-agent/
 | [docs/LOCAL_EXEC_CHECKLIST.md](docs/LOCAL_EXEC_CHECKLIST.md) | 本机执行检查清单 |
 | [docs/webshop_local_runbook.md](docs/webshop_local_runbook.md) | WebShop 本地部署与运行手册 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本变更日志 |
+| [docs/VERSIONING.md](docs/VERSIONING.md) | 版本管理规范（SemVer / Tag / Release 流程） |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | 贡献指南 |
 
 历史归档文档（早期版本的选型 / 方案 / 评审记录，保留以呈现工程演化过程）：
 
 | 文档 | 说明 |
 |------|------|
-| [docs/archive/](docs/archive/) | 归档目录：技术选型、性能分析、部署方案、API 文档、监控告警、版本管理、用户反馈、代码评审、可行性分析、实现计划等 |
+| [docs/archive/](docs/archive/) | 归档目录：技术选型、性能分析、部署方案、API 文档、监控告警、用户反馈、代码评审、可行性分析、实现计划等 |
 | [docs/archive/EXPERIMENT.md](docs/archive/EXPERIMENT.md) | 实验复现文档 |
 | [docs/archive/testing.md](docs/archive/testing.md) | TDD 实践与 bug 发现记录 |
 

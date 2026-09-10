@@ -1,7 +1,7 @@
 # 版本管理规范
 
 > pecs-multi-agent 采用语义化版本控制（Semantic Versioning），通过 Git Tag 与 GitHub Release 管理版本。
-> 各版本的**详细变更记录以 [`CHANGELOG.md`](../../CHANGELOG.md) 为准**，本文只描述规则与流程。
+> 各版本的**详细变更记录以 [`CHANGELOG.md`](../CHANGELOG.md) 为准**，本文只描述规则与流程。
 
 ## 1. 版本号规则
 
@@ -33,7 +33,7 @@ MAJOR.MINOR.PATCH
 | v0.6.0 | 2026-07-20 | 全体限流（令牌桶）+ 故障注入 / 混沌工程 |
 | v0.6.1 | 2026-09-10 | 工具层容错（超时/熔断/幂等/权限白名单）+ 成本归因 + 内容管线与回放 + 依赖故障显式化 + 跨平台路径校验 |
 
-**当前版本：v0.6.1**（详见 [`CHANGELOG.md`](../../CHANGELOG.md)）
+**当前版本：v0.6.1**（详见 [`CHANGELOG.md`](../CHANGELOG.md)）
 
 ## 3. Git Tag 管理
 
