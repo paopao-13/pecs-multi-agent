@@ -157,6 +157,12 @@ def _env_number(env_name: str, *yaml_keys, default):
 # 单条 query 最大字符数：超限直接拦截，不进入 LLM（对齐 benchmark_production 的 10K 超长用例）
 MAX_QUERY_CHARS = _env_number("MAX_QUERY_CHARS", "runtime", "max_query_chars", default=10000)
 
+# 断点续跑 / 链路回放所用的 SQLite 检查点文件（绝对路径，避免受 cwd 影响）
+CHECKPOINT_DB = os.getenv(
+    "PEC_CHECKPOINT_DB",
+    str(Path(__file__).parent / "results" / "checkpoints.sqlite"),
+)
+
 # 总开关：关闭时 execute_tool 走改造前的原路径，行为逐字一致
 TOOL_WRAPPER_ENABLED = _env_flag(
     "TOOL_WRAPPER_ENABLED", "tools", "wrapper_enabled", default=False, business_default=True

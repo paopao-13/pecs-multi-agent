@@ -436,6 +436,9 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `PEC_TRANSCRIBE_MODEL` | 否 | 同 `PEC_VISION_MODEL` | 音频转写模型名（部分端点支持 audio transcription） |
 | `PEC_SEARCH_PROVIDER` | 否 | 空 | 真实搜索 API 提供商，目前支持 `tavily`；配置后 Web 检索改用其接地摘要 |
 | `PEC_SEARCH_API_KEY` | 否 | 空 | 对应搜索 API Key |
+| `RUN_MODE` | 否 | `eval` | 运行模式：`eval` 关闭工具加固（行为等同改造前）/ `business` 全部开启 |
+| `MAX_QUERY_CHARS` | 否 | 10000 | 单条 query 字符上限，超限直接 413 拦截、不进入 LLM |
+| `PEC_CHECKPOINT_DB` | 否 | `results/checkpoints.sqlite` | 断点续跑 / 链路回放所用的 SQLite 检查点文件 |
 
 配置文件（`config.py`）关键参数：
 
@@ -445,20 +448,49 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `DEGRADE_THRESHOLD_1` | 0.70 | 70% 跳过部分 Critic |
 | `DEGRADE_THRESHOLD_2` | 0.85 | 85% 合并步骤 |
 | `DEGRADE_THRESHOLD_3` | 0.95 | 95% 强制输出 |
+| `TOOL_WRAPPER_ENABLED` | False（business 为 True） | 工具统一包装器总开关（超时/异常分类/结构化日志） |
+| `TOOL_TIMEOUT_SEC` | 15 | 单工具超时秒数 |
+| `TOOL_BREAKER_ENABLED` / `_THRESHOLD` / `_RESET_SEC` | False / 3 / 60 | 熔断：连续失败达阈值即熔断，60s 后半开 |
+| `TOOL_IDEMPOTENT_ENABLED` | False | 幂等缓存（**仅只读工具**：search/web_browse/file_read/file_parse/multimodal） |
+| `TOOL_PERMISSION_ENABLED` / `TOOL_PERMISSION_MAP` | False / `{}` | 权限白名单：节点→允许工具，越权返回 PERMISSION_DENIED 且不执行 |
 
 统一实验配置（`experiments/config.yaml`）：
 
 > 全项目所有模块（框架主逻辑、评测、消融、调度）统一读取此 YAML，覆盖 `config.py` 的代码级默认值，彻底消灭硬编码。包含模型参数、Token预算（含角色独立配额）、执行限制、安全规则等完整配置。
 
+### 运行模式：eval / business
+
+工具加固能力集中在 **一套开关** 下，默认全部关闭，通过 `RUN_MODE` 一键切换档案：
+
+| 模式 | 用途 | 工具加固 |
+|------|------|----------|
+| `eval`（默认） | 跑 GAIA / WebShop 评测，要求可复现 | 全部关闭 → **行为与改造前逐字一致** |
+| `business` | 面向生产 | 超时 / 熔断 / 幂等 / 权限白名单 全部打开 |
+
+开关取值优先级：**环境变量 > business 模式覆盖 > YAML > 代码默认值**。
+即环境变量永远最高，`RUN_MODE=business` 下仍可用环境变量逐项关掉某个能力：
+
+```bash
+RUN_MODE=business python scripts/api.py                  # 全开
+RUN_MODE=business TOOL_BREAKER_ENABLED=0 python scripts/api.py   # 只关熔断
+```
+
+**主动披露的局限**：熔断计数与幂等缓存都在进程内存里，**仅单进程有效**；
+`scripts/api.py` 以多 worker 运行时各进程互不共享（跨进程需落到 Redis/SQLite，
+本期未做）。工具超时是「放弃等待」而非「真正中断线程」（Windows 无 `signal.alarm`，
+项目图是同步的），死循环工具仍会占用工作线程。
+
+
 ## Demo 演示
 
-项目提供 6 个可运行的 Demo，覆盖从零配置体验 to 安全沙箱演示的完整场景：
+项目提供 7 个可运行的 Demo，覆盖从零配置体验 to 安全沙箱演示的完整场景：
 
 | Demo | 命令 | 说明 | 需要 API Key |
 |------|------|------|:---:|
 | 零配置快速体验 | `python demos/quickstart_no_api.py` | 无需 API Key，启发式兜底 + Python 沙箱执行 3 个计算任务 | 否 |
 | 安全沙箱拦截演示 | `python demos/security_sandbox_demo.py` | 展示 AST 预检查拦截 8 种攻击代码 + 白名单沙箱执行合法代码 | 否 |
 | Token 降级调度演示 | `python demos/token_budget_demo.py` | 展示 70%/85%/95% 三级降级 + 角色独立配额机制 | 否 |
+| AI 内容生成 Pipeline | `python demos/content_pipeline_demo.py` | 文案生成 → 批量生成（预算三级降级）→ LLM 自动评测 → A/B 选优 → 成本归因 | 否 |
 | PECS vs ReAct 对比 | `python demos/pecs_vs_react_demo.py` | 单任务对比 + 28 题批量汇总数据 | 否（有 Key 更完整） |
 | 批量任务执行 | `python demos/demo_batch_task.py` | 3 种批量执行方式：自定义列表/GAIA Mock/WebShop Mock | 是 |
 | 自定义 Critic 扩展 | `python demos/custom_critic_override_demo.py` | 继承原生 Critic 增加效率评分维度，注入 LangGraph 图 | 是 |
@@ -499,6 +531,34 @@ export_task_trace(result)  # 自动保存到 results/traces/
 
 > **链路追踪与端到端延迟**：设 `PEC_TRACE=1` 后，`graph/builder.py` 会在每个角色节点记录耗时并写入 `state["node_latencies"]`，`export_task_trace` 导出的 markdown 含「5.4 节点耗时」小节（各角色耗时占比 + 端到端总计）。GAIA 官方评测另在聚合结果里输出**逐题端到端耗时分布**（p50/p95/min/max，见上方评测表），`python run_gaia_official.py --dump-failures` 还会把失败题详情导出到 `results/gaia_failures.json`。
 
+### 成本归因与链路回放
+
+**成本归因**：把一次任务的 token 消耗拆到「角色 / 工具 / 轮次」，回答「钱花在哪」。
+数据全部来自既有的 `role_token_used` / `budget_events` / `results`，不新增埋点。
+
+```python
+from metrics.cost_attribution import attribute_cost, render_report
+
+state = run_task("计算2的100次方")
+print(render_report(state))          # 人类可读报告
+report = attribute_cost(state)       # 结构化 dict（可直接 json.dumps）
+```
+
+报告含**一致性校验**（各角色之和 vs 总消耗，偏差 ≥1% 会显式提示「需检查埋点」）。
+`/run_task` 的成功响应已自带 `cost_report` 字段，无需另开接口。
+
+**链路回放**：带 `thread_id` 调用 `/run_task` 即会持久化到 SQLite 检查点，
+之后可回放完整链路（**读取既有数据，不重跑图**，避免二次计费与副作用）：
+
+```bash
+curl -X POST localhost:8000/run_task \
+  -H 'Content-Type: application/json' \
+  -d '{"query": "计算2的100次方", "thread_id": "demo-1"}'
+
+curl localhost:8000/api/replay/demo-1
+# → {thread_id, state{...}, cost_report{...}, trace_markdown}
+```
+
 ### 自定义Critic开发
 
 ```bash
@@ -536,7 +596,9 @@ pecs-multi-agent/
 │   ├── web_search.py      # Web 搜索
 │   ├── file_reader.py
 │   ├── api_caller.py
-│   └── webshop.py
+│   ├── webshop.py
+│   ├── wrapper.py         # 工具统一包装器（超时/异常分类/熔断/幂等/权限）
+│   └── content_pipeline.py # AI 内容生成 Pipeline 工具（仅 business 模式注册）
 │
 ├── benchmarks/            # 基准评估
 │   ├── gaia_eval.py       # GAIA Level 1（28题）
@@ -572,7 +634,8 @@ pecs-multi-agent/
 │   └── graph_trace_logger.py  # 全链路日志导出
 │
 ├── metrics/               # 统计分析
-│   └── error_stat.py     # Critic纠错统计
+│   ├── error_stat.py      # Critic纠错统计
+│   └── cost_attribution.py # 成本归因（按角色/工具/轮次拆分）
 │
 ├── cases/                 # 案例文档
 │   └── error_correction/  # Critic纠错案例
@@ -580,11 +643,14 @@ pecs-multi-agent/
 │       └── 02_plan_logic_omission.md
 │
 ├── demos/                 # 示例代码
-│   ├── demo_batch_task.py          # 批量任务示例
+│   ├── quickstart_no_api.py            # 零配置快速体验
+│   ├── content_pipeline_demo.py        # AI 内容生成 Pipeline（无需 API）
+│   ├── demo_batch_task.py              # 批量任务示例
 │   └── custom_critic_override_demo.py  # 自定义Critic示例
 │
 ├── scripts/               # 自动化脚本与主入口
 │   ├── app.py                    # Flask Web 入口
+│   ├── api.py                    # FastAPI 服务（/run_task、/metrics、/api/replay）
 │   ├── run_all_ablation.sh       # 一键运行消融实验（6组配置）
 │   ├── run_baseline_compare.sh   # 多框架基线对比
 │   ├── run_real_evaluation.sh    # 真实 API 评测一键脚本（Bash）
