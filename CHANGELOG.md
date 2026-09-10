@@ -9,6 +9,7 @@
 - **Office 附件解析**（`tools/file_parser.py`）：支持 `.docx` 与 `.pptx` —— 用**标准库** `zipfile` + `ElementTree` 解析 OOXML（`word/document.xml` 的 `<w:p>/<w:t>`；`ppt/slides/slideN.xml` 的 `<a:p>/<a:t>`，按数字自然序排页），**零新增依赖**。旧版二进制 `.doc`/`.ppt` 明确报错，不再静默回退成乱码。
 - **数据目录白名单** `PEC_DATA_ALLOW_DIR`（`tools/path_guard.py`）：显式配置的目录豁免于敏感路径 / 隐藏文件规则。不配置时行为与之前完全一致。
 - **评测单题硬超时 Windows 兜底**（`benchmarks/gaia_official.py:_run_with_deadline`）：守护线程 + `join(timeout)`，补上 Windows 缺失 `SIGALRM` 的盲区。
+- **LLM 调用整体墙钟上界** `LLM_CALL_DEADLINE`（`agents/llm_utils.py`，默认 120s，设 `0` 关闭）：约束**一次 `call_llm` 的全部重试总耗时**，到点后不再发起新尝试、且跳过会越界的退避等待。
 
 ### Fixed
 - **门控数据集在受限网络下无法拉取**：定位并规避 `snapshot_download()` 整仓拉取的两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，跨域重定向**丢掉 `Authorization` 头**，门控文件必然 401；② 119 个文件逐个创建/删除 `.locks`/`*.incomplete`，累计删除次数触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。两者均在 `scripts/download_gaia.py` 与 `datasets/gaia_official_dataset.py` 的文档字符串中记录成因与规避方式。
@@ -16,10 +17,12 @@
 - **🔴 数据目录被路径守卫静默拒解析（实测导致附件子集 0 分）**：`FORBIDDEN_PREFIXES` 含 `C:\Users`，而 Windows 上用户数据（含 HuggingFace 默认缓存 `~\.cache`，还命中「隐藏文件」规则）就在其下。实证：历史 GAIA 官方 53 题的 **11 道附件题全部 0 分**，预测文本原话为「所有尝试读取附件…均因权限限制而失败（错误：禁止访问系统敏感路径）」——**26.4% 完全来自 42 道无附件题（14/42 = 33.3%）**。修复路径：数据放到非禁区目录（本地镜像在 `D:`），或经 `PEC_DATA_ALLOW_DIR` 显式豁免。⚠️ 该发现意味着 26.4% 是「附件链路带 bug」下的数字，重跑后预计上升；**数字本身暂不更新，待实测重跑后再统一修订。**
 - **单题超时在 Windows 从未生效**：原先仅靠 `signal.SIGALRM`，Windows 无此信号 ⇒ `hasattr` 判定整段跳过。实证：LLM 网关「只连不发」时单题空转 15 分钟（`faulthandler` 栈 dump 定位在 `agents/llm_utils.py:152` → `ssl.py read`），53 题串行评测随时被拖死且无提示。现已用守护线程兜底。
 - **更正一项归因**：此前把上述挂起归给 `tools/web_search.py` 的 DuckDuckGo 调用，经全线程栈 dump 证伪 —— `duckduckgo_search` 的 `DDGS.__init__` **默认就有 `timeout=10`**。仍将超时显式化并做成可配置（`PEC_SEARCH_TIMEOUT`，默认 10 与库默认一致），以免将来依赖库的默认值。
+- **`call_llm` 缺少整体上界（上述 15 分钟挂起的根因）**：`get_llm()` 的 `timeout=60` 只约束**单次 HTTP 请求**，而一次 `llm.invoke()` 内部还有 openai SDK 自己的 `max_retries=2`（最多 3 次请求）⇒ 单次 invoke 最长 180s；外层再重试 3 次 + 8/16/32s 退避 ⇒ **最坏约 9 分钟且无整体上界**。新增 `LLM_CALL_DEADLINE` 后协程/同步路径均按墙钟收敛。⚠️ 它只能阻止「发起新尝试」，无法中断已飞行中的那次 —— 真正的硬边界仍由 `_run_with_deadline()` 提供，两者构成纵深防御。
 
 ### Changed
 - `datasets/gaia_official_dataset.py` 抽出 `_ingest()`（字段归一化）与 `_load_local()`（本地镜像读取），在线与离线两条路径共用同一归一化逻辑，避免格式漂移。
-- 单元测试 290 → **299 passed**（新增 `tests/test_office_parse.py` 6 例、`tests/test_gaia_official.py` 硬超时 3 例）。
+- **评测单题默认超时 120s → 300s**（`benchmarks/gaia_official.py` / `run_gaia_official.py --timeout`）：修复 Office 解析后实测两道附件题分别耗时 248.7s / 260.4s，沿用 120s 会**系统性地把刚修好的题再杀一遍**。
+- 单元测试 290 → **302 passed**（新增 `tests/test_office_parse.py` 6 例、`tests/test_gaia_official.py` 硬超时 3 例、`tests/test_llm_call_deadline.py` 3 例）。
 
 ## [0.6.1] - 2026-09-10
 

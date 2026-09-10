@@ -10,11 +10,14 @@ GAIA 官方数据集评测模块
   - 分层统计：无附件/有附件/总体 三层准确率
   - 统计显著性：McNemar 检验（n=53 满足最低样本要求）
   - 断点续跑：复用 run_resumable.py 机制，按官方 task_id 续跑
-  - 单题超时：默认 120 秒，超时记为失败不阻塞后续。⚠️ 该超时原先只靠
+  - 单题超时：默认 300 秒，超时记为失败不阻塞后续。⚠️ 该超时原先只靠
     `signal.SIGALRM` 实现，**Windows 上没有 SIGALRM ⇒ 从未生效**（单题可空转
     十几分钟）。现已用守护线程 + join 补上（见 `_run_with_deadline`）。
-    注意：历史跑分里单题最大耗时 218.5s > 120s，若要完全对齐历史口径需
-    用 `--timeout 240`，否则那道题会被记为超时。
+
+    为什么默认是 300 而不是原来的 120：120 是拍脑袋值，实测不够——带附件的题
+    要先解析文件再推理，实测 248.7s（.docx）/ 260.4s（.pptx）才答对，120s 会
+    **系统性误杀**这一类题，把「能力不够」和「时间不够」混为一谈。历史那次跑分
+    在 Windows 上根本没超时（等同 ∞），300s 比 120s 更贴近历史口径。
 
 依赖：
   - datasets, huggingface_hub (pip install)
@@ -382,7 +385,7 @@ def evaluate_gaia_official(
     token_budget: int = DEFAULT_TOKEN_BUDGET,
     level: int = 1,
     split: str = "validation",
-    timeout_seconds: int = 120,
+    timeout_seconds: int = 300,
 ) -> Dict[str, Any]:
     """在 GAIA 官方数据集上评测
 

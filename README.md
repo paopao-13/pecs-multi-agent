@@ -450,6 +450,10 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `PEC_CHECKPOINT_DB` | 否 | `results/checkpoints.sqlite` | 断点续跑 / 链路回放所用的 SQLite 检查点文件 |
 | `PEC_SKIP_LLM_PROBE` | 否 | 空 | 置 `1` 跳过启动期的 LLM 真实探测（离线 / 测试环境）；跳过时退回「key 非空即就绪」|
 | `PEC_LLM_PROBE_TIMEOUT` | 否 | 15 | 启动期 LLM 探测超时（秒），超时视为未就绪 |
+| `LLM_CALL_TIMEOUT` | 否 | 60 | **单次 HTTP 请求**超时（秒），传给 ChatOpenAI 客户端 |
+| `LLM_CALL_DEADLINE` | 否 | 120 | **一次 `call_llm` 全部重试**的墙钟总预算（秒）；到点后不再发起新尝试、跳过越界退避。设 `0` 关闭（保留旧行为）。它无法中断已飞行中的那次，硬边界仍由评测侧 `_run_with_deadline()` 兜底 |
+| `LLM_MIN_GAP` | 否 | 3.0 | 两次 LLM 调用的最小间隔（秒），规避 RPM 限制 |
+| `PEC_SEARCH_TIMEOUT` | 否 | 10 | DuckDuckGo 检索超时（秒），与 `duckduckgo_search` 库默认值一致，显式化以防依赖库改默认 |
 
 配置文件（`config.py`）关键参数：
 

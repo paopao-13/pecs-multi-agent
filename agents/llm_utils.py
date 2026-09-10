@@ -129,6 +129,22 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
     max_retries = 3
     last_error = ""
 
+    # 整体墙钟预算：单次 call_llm（含全部重试）的总耗时上限，LLM_CALL_DEADLINE 秒。
+    #
+    # 为什么必须有：get_llm() 里的 timeout=60 只是「单次 HTTP 请求」的上限，而
+    #   一次 llm.invoke() 内部还有 openai SDK 自己的 max_retries=2（最多 3 次请求）
+    #   ⇒ 单次 invoke 最长 3×60=180s；外层再重试 3 次 + 8/16/32s 退避
+    #   ⇒ 最坏约 9 分钟，**且没有任何整体上界**。
+    # 实测后果：网关「只连不发」时（faulthandler 栈定位于此 → ssl.py read），
+    #   单道 GAIA 题空转 15 分钟，53 题串行评测被彻底拖死且无提示。
+    #
+    # 设为 0 可关闭（保留旧行为）。注意它只能阻止「发起新尝试」，无法中断
+    # 已在飞行中的那一次 —— 真正的硬边界由调用方提供：
+    #   benchmarks/gaia_official.py 的 _run_with_deadline()（守护线程 + join）。
+    # 两者构成纵深防御：这里收敛耗时，那里保证评测不卡死。
+    deadline_sec = float(os.getenv("LLM_CALL_DEADLINE", "120"))
+    deadline = (_time.time() + deadline_sec) if deadline_sec > 0 else None
+
     # 限流保护：保证两次 API 调用之间至少间隔 _GAP 秒，避免触发 RPM/模型容量限制。
     # 通过环境变量 LLM_MIN_GAP 可调整（默认 3s，足以规避绝大多数基础 RPM 限制，
     # 又不至于像之前的 20s 那样在换用不限流 API 时严重拖慢评测）。
@@ -142,6 +158,10 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
         call_llm._last_ts = _time.time()
 
     for attempt in range(max_retries):
+        # 到点后不再发起新的尝试（已飞行中的那次由客户端 timeout 兜底）
+        if deadline is not None and attempt > 0 and _time.time() >= deadline:
+            last_error = f"deadline exceeded: {deadline_sec:.0f}s"
+            break
         try:
             llm = get_llm(role)
             messages = []
@@ -176,6 +196,10 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
             ])
             if is_rate_limit and attempt < max_retries - 1:
                 wait = 8 * (2 ** attempt)  # 8s, 16s, 32s（比原 15/30/60 更温和）
+                # 退避会越过 deadline → 直接放弃，不在明知无用的等待上浪费墙钟
+                if deadline is not None and _time.time() + wait >= deadline:
+                    last_error = f"{last_error} (deadline {deadline_sec:.0f}s)"
+                    break
                 _time.sleep(wait)
                 continue
             # 非限流错误或重试耗尽，直接返回失败

@@ -83,7 +83,9 @@ def main():
     parser.add_argument("--only", choices=["all", "multi_agent", "react"], default="all",
                         help="all=PECS+ReAct对比; multi_agent=仅PECS; react=仅ReAct")
     parser.add_argument("--budget", type=int, default=DEFAULT_TOKEN_BUDGET, help="每题 Token 预算")
-    parser.add_argument("--timeout", type=int, default=120, help="单题超时秒数")
+    parser.add_argument("--timeout", type=int, default=300,
+                        help="单题超时秒数（默认 300。实测带附件题需 250~260s，"
+                             "原 120s 会系统性误杀；详见 benchmarks/gaia_official.py 顶部说明）")
     parser.add_argument("--dump-failures", action="store_true",
                         help="评测后把 PECS 答错的逐题详情（问题/预测/gold/token/耗时）导出到 results/gaia_failures.json，用于失败案例分析")
     args = parser.parse_args()
