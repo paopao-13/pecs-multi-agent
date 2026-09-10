@@ -2,6 +2,17 @@
 
 本项目遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)，变更记录格式参考 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [Unreleased]
+
+### Added
+- **GAIA 官方数据集本地镜像支持**：新增 `scripts/download_gaia.py`（纯 HTTP 直连下载，**零删除**，支持大小校验与断点续下）；`GAIAOfficialDataset` 支持 `local_dir` 参数 / `PEC_GAIA_LOCAL_DIR` 环境变量，命中时走**本地只读**路径，完全不触碰 huggingface_hub 缓存机制（可复现、可离线、CI 友好）。`data/gaia/` 已加入 `.gitignore`（门控数据严禁入库）。
+
+### Fixed
+- **门控数据集在受限网络下无法拉取**：定位并规避 `snapshot_download()` 整仓拉取的两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，跨域重定向**丢掉 `Authorization` 头**，门控文件必然 401；② 119 个文件逐个创建/删除 `.locks`/`*.incomplete`，累计删除次数触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。两者均在 `scripts/download_gaia.py` 与 `datasets/gaia_official_dataset.py` 的文档字符串中记录成因与规避方式。
+
+### Changed
+- `datasets/gaia_official_dataset.py` 抽出 `_ingest()`（字段归一化）与 `_load_local()`（本地镜像读取），在线与离线两条路径共用同一归一化逻辑，避免格式漂移。
+
 ## [0.6.1] - 2026-09-10
 
 P0 生产化加固：依赖故障显式化 + 工具层容错 + 成本可观测 + 内容管线/回放 + 跨平台路径校验。

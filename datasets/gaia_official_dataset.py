@@ -12,6 +12,20 @@ GAIA Official 数据集
    - 运行 huggingface-cli login
    - 在构造函数中传入 hf_token 参数
 
+推荐：本地镜像模式（受限网络下唯一可靠路径）
+---------------------------------------------
+门控数据集在受限网络下用 snapshot_download 整仓拉取会失败：
+  - HF_ENDPOINT 指向镜像时，/resolve/ 会 308 跳回 huggingface.co，
+    而跨域重定向会丢掉 Authorization 头，门控文件必然 401；
+  - 119 个文件逐个创建/删除 .locks/*.incomplete，会触发宿主环境的
+    批量删除保护（阈值 50/轮）而被中断。
+
+因此推荐先离线下载到本地目录，再让本类只读该目录：
+
+    python scripts/download_gaia.py          # 下载到 data/gaia
+    export PEC_GAIA_LOCAL_DIR=data/gaia      # 或构造时传 local_dir="data/gaia"
+    # 之后 GAIAOfficialDataset 走本地只读路径，不触碰 HF 缓存机制
+
 字段映射（官方 → 内置）：
   task_id            → task_id
   Question           → question
@@ -45,7 +59,8 @@ class GAIAOfficialDataset(BaseDataset):
     - 附件: file_path 指向 PDF/xlsx/png/txt/docx/pptx/mp3/py 等, 相对仓库根目录
     """
 
-    def __init__(self, hf_token: Optional[str] = None, level: int = 1, split: str = "validation"):
+    def __init__(self, hf_token: Optional[str] = None, level: int = 1, split: str = "validation",
+                 local_dir: Optional[str] = None):
         """
         初始化 GAIA 官方数据集
 
@@ -54,15 +69,68 @@ class GAIAOfficialDataset(BaseDataset):
                       HF_TOKEN、HUGGINGFACE_TOKEN 读取。
             level: GAIA 难度等级（1/2/3），默认为 Level 1
             split: 数据集 split，"validation"（有答案，本地评测）或 "test"（答案私有，提交 leaderboard）
+            local_dir: 本地镜像目录（可选）。指向 scripts/download_gaia.py 下载的目录
+                       （含 2023/<split>/metadata.level{N}.parquet 与附件）。
+                       为 None 时读取环境变量 PEC_GAIA_LOCAL_DIR。
+                       设置后走本地只读路径，**不触碰 huggingface_hub 缓存机制**——
+                       这是受限网络下唯一可靠的方式（详见 scripts/download_gaia.py 顶部说明）。
         """
         self._level = level
         self._split = split
         self._config_name = f"2023_level{level}"
         self._hf_token = hf_token or os.getenv("HF_TOKEN") or os.getenv("HUGGINGFACE_TOKEN")
+        self._local_dir = local_dir or os.getenv("PEC_GAIA_LOCAL_DIR")
         self._data_dir: Optional[str] = None  # snapshot_download 返回的本地路径
         self._samples: List[Dict[str, Any]] = []
         self._index: Dict[str, Dict[str, Any]] = {}
         self._loaded = False
+
+    def _ingest(self, dataset) -> None:
+        """把原始样本行归一化为内置格式（本地镜像与 HF 在线两条路径共用）"""
+        for row in dataset:
+            sample = {
+                "task_id": str(row.get("task_id", "")),
+                "question": row.get("Question", ""),
+                "answer": str(row.get("Final answer", "")),
+                "level": self._level,
+                "file_name": row.get("file_name", "") or "",
+                "file_path": row.get("file_path", "") or "",
+                "metadata": row.get("Annotator Metadata", {}) or {},
+                "source": "official",
+            }
+            self._samples.append(sample)
+
+        self._index = {s["task_id"]: s for s in self._samples}
+        self._loaded = True
+
+    def _load_local(self) -> None:
+        """本地镜像模式：直接读 parquet（纯只读，零删除）
+
+        目录结构（与 HuggingFace 仓库一致）::
+
+            <local_dir>/2023/<split>/metadata.level{N}.parquet
+            <local_dir>/2023/<split>/<task_id>.<ext>       # 附件
+
+        这样 `resolve_attachment` 里的 `os.path.join(self._data_dir, file_path)`
+        可以直接命中（file_path 形如 "2023/validation/xxx.pdf"）。
+        """
+        import pandas as pd
+
+        parquet_path = os.path.join(
+            self._local_dir, "2023", self._split,
+            f"metadata.level{self._level}.parquet",
+        )
+        if not os.path.exists(parquet_path):
+            raise FileNotFoundError(
+                f"本地镜像缺少 parquet: {parquet_path}\n"
+                f"请先运行: python scripts/download_gaia.py"
+                f"{'  --all-levels' if self._level != 1 else ''}\n"
+                f"或检查 PEC_GAIA_LOCAL_DIR 指向是否正确。"
+            )
+
+        self._data_dir = self._local_dir
+        df = pd.read_parquet(parquet_path)
+        self._ingest(df.to_dict("records"))
 
     def _ensure_loaded(self):
         """延迟加载：首次访问时从 HuggingFace 拉取数据
@@ -76,6 +144,14 @@ class GAIAOfficialDataset(BaseDataset):
         必须临时调整 sys.path 并屏蔽项目内 datasets 包来避免冲突。
         """
         if self._loaded:
+            return
+
+        # ── 本地镜像模式优先 ──
+        # 设置 PEC_GAIA_LOCAL_DIR（或构造参数 local_dir）后走本地只读路径，
+        # 完全不使用 snapshot_download：既规避镜像重定向丢鉴权导致的 401，
+        # 也规避逐个文件创建/删除 .locks/.incomplete 触发的批量删除保护。
+        if self._local_dir and os.path.isdir(self._local_dir):
+            self._load_local()
             return
 
         import sys
@@ -193,22 +269,8 @@ class GAIAOfficialDataset(BaseDataset):
                 f"  config={self._config_name} split={self._split}"
             ) from e
 
-        # 归一化样本格式，统一字段
-        for row in dataset:
-            sample = {
-                "task_id": str(row.get("task_id", "")),
-                "question": row.get("Question", ""),
-                "answer": str(row.get("Final answer", "")),
-                "level": self._level,
-                "file_name": row.get("file_name", "") or "",
-                "file_path": row.get("file_path", "") or "",
-                "metadata": row.get("Annotator Metadata", {}) or {},
-                "source": "official",
-            }
-            self._samples.append(sample)
-
-        self._index = {s["task_id"]: s for s in self._samples}
-        self._loaded = True
+        # 归一化样本格式，统一字段（与本地镜像路径共用）
+        self._ingest(dataset)
 
     def load_samples(self, num_samples: Optional[int] = None) -> List[Dict[str, Any]]:
         """

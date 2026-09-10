@@ -142,7 +142,16 @@ sequenceDiagram
 >
 > **一句话总领**：PECS 在 GAIA 上与 ReAct **无统计显著差异**（McNemar p=1.0）；唯一显著且真实验证的优势是 **WebShop 真实环境 +25pp**（来自"打破 search 循环"这一具体启发式，非多角色数量）。PECS 的核心价值 = 计算类/规则打破类稳定优势 + 生产级工程（限流/可观测/可恢复）+ **成本可预测性**。本仓库刻意不做"多智能体全方位碾压单 Agent"的叙事。
 >
-> **接入官方数据集方法**：直接运行 `python run_gaia_official.py`（默认评测 GAIA L1 validation 53 题，自动生成 `results/gaia_official_*.json`）；历史方案说明见 [docs/archive/EXPERIMENT.md](docs/archive/EXPERIMENT.md) 中「官方数据集接入」章节
+> **接入官方数据集方法**（GAIA 是 HuggingFace **门控数据集**，需先在数据集页申请访问许可并配置 `HF_TOKEN`）：
+>
+> ```bash
+> # 推荐：先离线下载到本地镜像，再让评测只读该目录
+> python scripts/download_gaia.py          # 直连 HF 下载 2023/validation + level1 parquet 到 data/gaia
+> export PEC_GAIA_LOCAL_DIR=data/gaia
+> python run_gaia_official.py              # 默认评测 GAIA L1 validation 53 题，生成 results/gaia_official_*.json
+> ```
+>
+> 为什么推荐本地镜像：`GAIAOfficialDataset` 原本用 `snapshot_download()` 整仓拉取（119 个文件），在受限网络下会踩两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，而跨域重定向会**丢掉 `Authorization` 头**，门控文件必然 401；② 逐文件创建/删除 `.locks`/`*.incomplete` 会触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。`scripts/download_gaia.py` 改为纯 HTTP 直连下载（零删除），`GAIAOfficialDataset` 在检测到 `PEC_GAIA_LOCAL_DIR` 时走**本地只读**路径，完全不触碰 HF 缓存机制（可复现、可离线、CI 友好）。历史方案说明见 [docs/archive/EXPERIMENT.md](docs/archive/EXPERIMENT.md) 中「官方数据集接入」章节
 
 **实验环境**：内置 33 题与 WebShop 12 题均基于 DeepSeek-chat 实测（temperature 按角色 0.0~0.5；**基准评测开启 `PEC_DETERMINISTIC=1` 固定全 0 以保证数字可复现、可 defense**）；GAIA 官方 53 题同样基于 DeepSeek-chat（bug 修复后重跑验证）。GLM-4.7-Flash / Qwen 配置已在 `config.py` 预留但未实测，不纳入结论。| Python 3.10.11 | langgraph 0.2.x | 2026-07-19
 
@@ -689,6 +698,7 @@ pecs-multi-agent/
 ├── scripts/               # 自动化脚本与主入口
 │   ├── app.py                    # Flask Web 入口
 │   ├── api.py                    # FastAPI 服务（/run_task、/metrics、/api/replay）
+│   ├── download_gaia.py          # GAIA 官方数据集本地镜像下载器（绕开 HF 缓存机制）
 │   ├── run_all_ablation.sh       # 一键运行消融实验（6组配置）
 │   ├── run_baseline_compare.sh   # 多框架基线对比
 │   ├── run_real_evaluation.sh    # 真实 API 评测一键脚本（Bash）
