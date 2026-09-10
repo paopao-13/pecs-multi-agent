@@ -67,7 +67,9 @@ def test_step_count_updated_by_executor():
     from agents.executor import executor_node
 
     state = create_initial_state("计算 2 的 100 次方")
-    state["plan"] = [
+    # AgentState 是 Pydantic BaseModel（graph/state.py:45），只自定义了 __getitem__
+    # 未定义 __setitem__，因此必须用属性赋值，不能写 state["plan"] = [...]
+    state.plan = [
         {"id": 1, "action": "python", "description": "计算 2^100",
          "args": {"code": "print(2**100)"}, "status": "pending",
          "result": None, "retry_count": 0},

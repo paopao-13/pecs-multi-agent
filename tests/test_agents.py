@@ -203,23 +203,29 @@ class TestShouldReflect:
 
 
 # ============================================================
-# Executor 节点 success 判定（mock execute_tool）— bug #1 修复
+# Executor 节点 success 判定（mock execute_tool）
 # ============================================================
 
 class TestExecutorSuccessDetection:
     """测试 executor_node 的 success 判定
 
-    bug #1: "失败" not in result[:20] 只看前 20 字符，
-    "失败" 在第 21+ 字符时漏判为成功。
-    修复: result[:20] → result（全文检查）
+    真实契约见 tools/__init__.py:45-53 的 is_tool_success：
+    采用「错误标记前缀」判定 —— 仅当工具结果以 _ERROR_MARKERS
+    ("错误" / "执行错误" / "安全检查未通过") 开头时才判为失败。
+
+    刻意不检测裸「失败」二字：否则「失败率 = 0.05」「失败次数 = 3」
+    这类正常统计值会被误判为执行失败（该契约由 tests/test_tool_success.py 锁定）。
+
+    注：早期注释曾写「result[:20] 截断导致漏判」，与代码事实不符 ——
+    agents/executor.py 中不存在该截断，成功判定始终委托 is_tool_success。
     """
 
-    def test_executor_failure_at_position_25(self, monkeypatch):
-        """bug #1: '失败' 在第 21 字符应判为失败"""
-        # mock execute_tool 返回 "失败" 在第 21 字符的结果
+    def test_executor_failure_with_error_prefix(self, monkeypatch):
+        """工具返回以错误标记开头 → success=False"""
+        # mock execute_tool 返回统一错误前缀格式的结果
         monkeypatch.setattr(
             "agents.executor.execute_tool",
-            lambda action, args: "a" * 20 + "执行失败",
+            lambda action, args: "执行错误：division by zero",
         )
         # mock call_llm 以防参数不完整时调用
         monkeypatch.setattr(
@@ -237,7 +243,7 @@ class TestExecutorSuccessDetection:
 
         result = executor_node(state)
         assert result["results"][0]["success"] is False, (
-            "'失败' 在第 21 字符应判为失败，但 result[:20] 截断导致漏判"
+            "以错误标记开头的工具结果应判为失败"
         )
 
     def test_executor_success_normal(self, monkeypatch):

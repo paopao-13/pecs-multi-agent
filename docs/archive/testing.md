@@ -39,6 +39,8 @@
 
 **为什么 code review 看不出来**：`[:20]` 看起来像是"优化"（避免扫描长字符串），实际是逻辑错误。只有构造特定的边界 case 才能发现。
 
+> **事实更正**：本节描述的 `result[:20]` 截断在 `agents/executor.py` 中并未存在——成功判定始终委托 `tools/__init__.py:45-53` 的 `is_tool_success()`，它采用错误标记**前缀**判定（`_ERROR_MARKERS`），刻意不检测裸「失败」，以免把「失败率 = 0.05」这类正常统计值误判为执行失败。原用例 `test_executor_failure_at_position_25` 的断言与该契约冲突，已重命名为 `test_executor_failure_with_error_prefix` 并改为验证错误前缀判定；该契约由 `tests/test_tool_success.py` 锁定。本节保留原文以记录当时的 TDD 过程。
+
 ### bug #2：LLM 兜底判定误匹配（影响评测数据）
 
 **位置**：`benchmarks/gaia_official.py`
@@ -136,7 +138,7 @@
 
 ### 故事 2：TDD 发现 bug（工程能力）
 
-`test_executor_failure_at_position_25` / `test_rule_evaluate_error_at_position_25` / `test_llm_fallback_no`：通过 TDD 的 RED 阶段发现 `[:20]` 截断和子串误匹配 bug。
+`test_executor_failure_with_error_prefix`（原名 `test_executor_failure_at_position_25`，见 bug #1 节事实更正）/ `test_rule_evaluate_error_at_position_25` / `test_llm_fallback_no`：通过 TDD 的 RED 阶段发现边界判定缺陷。
 
 > 这些 bug 用 code review 看不出来——`[:20]` 看起来像是优化，`"是" in result` 看起来没问题。只有先写测试构造边界 case，才能发现它们。这就是 TDD 的价值：让测试来证明代码正确，而不是靠人眼。
 
