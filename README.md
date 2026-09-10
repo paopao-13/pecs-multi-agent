@@ -443,6 +443,7 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `PEC_VISION_MODEL` | 否 | 空 | 视觉模型名（如 `gpt-4o-mini`）；未配置则多模态附件题优雅降级为跳过 |
 | `PEC_VISION_API_KEY` | 否 | 空 | 多模态后端 API Key |
 | `PEC_TRANSCRIBE_MODEL` | 否 | 同 `PEC_VISION_MODEL` | 音频转写模型名（部分端点支持 audio transcription） |
+| `PEC_VISION_MAX_TOKENS` | 否 | 3000 | 图片转录输出上限；整页截图转录 1500 会被截断，题目要的数据常在页面更深处 |
 | `PEC_SEARCH_PROVIDER` | 否 | 空 | 真实搜索 API 提供商，目前支持 `tavily`；配置后 Web 检索改用其接地摘要 |
 | `PEC_SEARCH_API_KEY` | 否 | 空 | 对应搜索 API Key |
 | `RUN_MODE` | 否 | `eval` | 运行模式：`eval` 关闭工具加固（行为等同改造前）/ `business` 全部开启 |

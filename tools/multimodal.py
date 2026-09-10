@@ -22,6 +22,10 @@ VISION_BASE_URL = os.getenv("PEC_VISION_BASE_URL", "")
 VISION_MODEL = os.getenv("PEC_VISION_MODEL", "")
 VISION_API_KEY = os.getenv("PEC_VISION_API_KEY", "")
 TRANSCRIBE_MODEL = os.getenv("PEC_TRANSCRIBE_MODEL", VISION_MODEL)
+# 图片转录的输出上限。1500 会把整页截图的转录截断在中途（实测 GAIA 9318445f 的
+# Wikipedia 算术页只转到 Fractions 章节就停），而题目要的数据常在页面更深处。
+# 实测 glm-5.2-vision 单次视觉调用约 50~80s，加大 token 不影响时延量级。
+VISION_MAX_TOKENS = int(os.getenv("PEC_VISION_MAX_TOKENS", "3000"))
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
 _AUDIO_EXTS = (".mp3", ".m4a", ".wav", ".ogg", ".flac")
@@ -84,9 +88,16 @@ def _describe_image(client, path: str) -> str:
                 {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
             ],
         }],
-        max_tokens=1500,
+        max_tokens=VISION_MAX_TOKENS,
     )
-    return resp.choices[0].message.content or ""
+    content = resp.choices[0].message.content or ""
+    # 网关侧图片解码失败时，视觉模型实际收到的是占位文本而非图片，
+    # 回复形如「…[图片内容描述失败]…请重新上传…」。这种「假成功」必须显式化为
+    # 失败串，让评测侧按 multimodal_skip 记录，而不是把客套话当附件描述注入题面
+    # （实测：GAIA cca530fc 棋盘图在该网关 3 个 vision 模型 + PNG/JPEG 重编码均如此）。
+    if "图片内容描述失败" in content or "图片内容未能成功" in content:
+        return "[多模态处理失败] 视觉后端未读取到图片数据（网关侧图片解码失败）"
+    return content
 
 
 def _transcribe_audio(client, path: str) -> str:

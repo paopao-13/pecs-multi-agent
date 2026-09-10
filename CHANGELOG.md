@@ -8,6 +8,7 @@
 - **GAIA 官方数据集本地镜像支持**：新增 `scripts/download_gaia.py`（纯 HTTP 直连下载，**零删除**，支持大小校验与断点续下）；`GAIAOfficialDataset` 支持 `local_dir` 参数 / `PEC_GAIA_LOCAL_DIR` 环境变量，命中时走**本地只读**路径，完全不触碰 huggingface_hub 缓存机制（可复现、可离线、CI 友好）。`data/gaia/` 已加入 `.gitignore`（门控数据严禁入库）。
 - **Office 附件解析**（`tools/file_parser.py`）：支持 `.docx` 与 `.pptx` —— 用**标准库** `zipfile` + `ElementTree` 解析 OOXML（`word/document.xml` 的 `<w:p>/<w:t>`；`ppt/slides/slideN.xml` 的 `<a:p>/<a:t>`，按数字自然序排页），**零新增依赖**。旧版二进制 `.doc`/`.ppt` 明确报错，不再静默回退成乱码。
 - **数据目录白名单** `PEC_DATA_ALLOW_DIR`（`tools/path_guard.py`）：显式配置的目录豁免于敏感路径 / 隐藏文件规则。不配置时行为与之前完全一致。
+- **多模态后端实测打通（网关自带 vision 模型）**：`GET /models` 枚举到 4 个视觉模型（`glm-5.2/5.3-vision`、`deepseek-v4-flash/pro-vision`），与主 LLM 同 key 同端点，GAIA 的 2 道图片附件题由此具备作答条件（11 道附件题 = 2 图 + 2 音频 + 7 文档）。图片转录输出上限改为可配置 `PEC_VISION_MAX_TOKENS`（默认 1500 → **3000**：实测整页截图转录到 1500 就被截断，而题目要的数据常在页面更深处）。音频转写端点该网关不支持，2 道 mp3 题仍按降级跳过。
 - **评测单题硬超时 Windows 兜底**（`benchmarks/gaia_official.py:_run_with_deadline`）：守护线程 + `join(timeout)`，补上 Windows 缺失 `SIGALRM` 的盲区。
 - **LLM 调用整体墙钟上界** `LLM_CALL_DEADLINE`（`agents/llm_utils.py`，默认 120s，设 `0` 关闭）：约束**一次 `call_llm` 的全部重试总耗时**，到点后不再发起新尝试、且跳过会越界的退避等待。
 
@@ -17,6 +18,8 @@
 - **🔴 数据目录被路径守卫静默拒解析（实测导致附件子集 0 分）**：`FORBIDDEN_PREFIXES` 含 `C:\Users`，而 Windows 上用户数据（含 HuggingFace 默认缓存 `~\.cache`，还命中「隐藏文件」规则）就在其下。实证：历史 GAIA 官方 53 题的 **11 道附件题全部 0 分**，预测文本原话为「所有尝试读取附件…均因权限限制而失败（错误：禁止访问系统敏感路径）」——**26.4% 完全来自 42 道无附件题（14/42 = 33.3%）**。修复路径：数据放到非禁区目录（本地镜像在 `D:`），或经 `PEC_DATA_ALLOW_DIR` 显式豁免。⚠️ 该发现意味着 26.4% 是「附件链路带 bug」下的数字，重跑后预计上升；**数字本身暂不更新，待实测重跑后再统一修订。**
 - **单题超时在 Windows 从未生效**：原先仅靠 `signal.SIGALRM`，Windows 无此信号 ⇒ `hasattr` 判定整段跳过。实证：LLM 网关「只连不发」时单题空转 15 分钟（`faulthandler` 栈 dump 定位在 `agents/llm_utils.py:152` → `ssl.py read`），53 题串行评测随时被拖死且无提示。现已用守护线程兜底。
 - **更正一项归因**：此前把上述挂起归给 `tools/web_search.py` 的 DuckDuckGo 调用，经全线程栈 dump 证伪 —— `duckduckgo_search` 的 `DDGS.__init__` **默认就有 `timeout=10`**。仍将超时显式化并做成可配置（`PEC_SEARCH_TIMEOUT`，默认 10 与库默认一致），以免将来依赖库的默认值。
+- **视觉后端「假成功」显式化**（`tools/multimodal.py`）：网关侧图片解码失败时，视觉模型实际收到占位文本而非图片，回复形如「…[图片内容描述失败]…请重新上传…」——旧逻辑会把这段客套话当附件描述注入题面（工具显示成功、实际零信息）。现检测该占位标记并返回 `[多模态处理失败]`，评测侧按 `multimodal_skip` 显式记录。实测 GAIA `cca530fc`（棋盘图）在该网关 3 个 vision 模型 + PNG/JPEG 重编码后均持续如此，属网关侧限制，已记为已知缺陷。
+- **排查工具坑（记录备忘）**：用 Python 标准库 `urllib` 直连该网关会稳定收到 **Cloudflare 1010（HTTP 403）**——是 UA 黑名单（`Python-urllib/*`）而非凭据问题，换浏览器 UA 或 `requests` / openai SDK 即恢复。用它做连通性诊断会误判「key 失效」。
 - **`call_llm` 缺少整体上界（上述 15 分钟挂起的根因）**：`get_llm()` 的 `timeout=60` 只约束**单次 HTTP 请求**，而一次 `llm.invoke()` 内部还有 openai SDK 自己的 `max_retries=2`（最多 3 次请求）⇒ 单次 invoke 最长 180s；外层再重试 3 次 + 8/16/32s 退避 ⇒ **最坏约 9 分钟且无整体上界**。新增 `LLM_CALL_DEADLINE` 后协程/同步路径均按墙钟收敛。⚠️ 它只能阻止「发起新尝试」，无法中断已飞行中的那次 —— 真正的硬边界仍由 `_run_with_deadline()` 提供，两者构成纵深防御。
 
 ### Changed
