@@ -11,7 +11,7 @@ LLM 依赖故障显式化测试（D1/D2 修复）
   1. LLM 失败信号原语（LLM_FAILURE_PREFIX / is_llm_failure / LLMInvocationError）
   2. call_llm_json 在失败时显式抛出，而非抛误导性的 JSONDecodeError
   3. Planner / Synthesizer 把失败写入 AgentState.llm_error（可机读）
-  4. api._probe_llm 启动探测（成功 / key 失效 / 异常）
+  4. api._probe_llm 启动探测（三态 ok / auth_error / unknown）+ 结论到启动状态的映射
   5. /run_task 对"LLM 失败 + 零步骤"返回 success=False（而非 200+空答案）
 """
 import pytest
@@ -149,32 +149,88 @@ class TestSynthesizerReportsError:
 
 
 # ============================================================
-# 4. api._probe_llm 启动探测
+# 4. api._probe_llm 启动探测（只看鉴权结论，不等模型生成）
 # ============================================================
 
+class _FakeResp:
+    def __init__(self, status_code, text=""):
+        self.status_code = status_code
+        self.text = text
+
+
 class TestStartupProbe:
-    def test_probe_ok(self, monkeypatch):
-        monkeypatch.setattr("agents.llm_utils.call_llm", lambda *a, **kw: ("pong", 3))
-        ok, reason = api._probe_llm()
-        assert ok is True
+    """探测返回三态：ok / auth_error / unknown。
+
+    设计要点（实测依据）：所用模型多为 reasoning 模型，单次生成耗时 4.8~38.4s
+    剧烈波动；若用「固定超时等一次对话完成」做探测，会把"模型只是慢"误判为
+    "依赖不可用"，导致启动即 503。故改为 GET /models，只看鉴权结论。
+    """
+
+    def test_ok_when_200(self, monkeypatch):
+        monkeypatch.setattr("requests.get", lambda *a, **kw: _FakeResp(200, '{"data":[]}'))
+        status, reason = api._probe_llm()
+        assert status == "ok"
         assert "通过" in reason
 
-    def test_probe_detects_invalid_key(self, monkeypatch):
-        monkeypatch.setattr(
-            "agents.llm_utils.call_llm",
-            lambda *a, **kw: (f"{LLM_FAILURE_PREFIX} 401 Unauthorized", 0),
-        )
-        ok, reason = api._probe_llm()
-        assert ok is False
-        assert "401" in reason or "失败" in reason
+    def test_auth_error_on_401(self, monkeypatch):
+        monkeypatch.setattr("requests.get", lambda *a, **kw: _FakeResp(401, '{"error":"Invalid token"}'))
+        status, reason = api._probe_llm()
+        assert status == "auth_error"
+        assert "401" in reason
 
-    def test_probe_swallows_exceptions(self, monkeypatch):
+    def test_auth_error_on_403(self, monkeypatch):
+        monkeypatch.setattr("requests.get", lambda *a, **kw: _FakeResp(403, "forbidden"))
+        status, _ = api._probe_llm()
+        assert status == "auth_error"
+
+    def test_unknown_on_other_status(self, monkeypatch):
+        """端点不支持 /models（404）等 → 未获结论，不得误判为凭据错误"""
+        monkeypatch.setattr("requests.get", lambda *a, **kw: _FakeResp(404, "not found"))
+        status, _ = api._probe_llm()
+        assert status == "unknown"
+
+    def test_unknown_on_network_exception(self, monkeypatch):
         def boom(*a, **kw):
-            raise RuntimeError("network down")
-        monkeypatch.setattr("agents.llm_utils.call_llm", boom)
-        ok, reason = api._probe_llm()
+            raise ConnectionError("network down")
+        monkeypatch.setattr("requests.get", boom)
+        status, reason = api._probe_llm()
+        assert status == "unknown"
+        assert "ConnectionError" in reason
+
+    def test_request_uses_bearer_auth_and_timeout(self, monkeypatch):
+        seen = {}
+
+        def spy(url, headers=None, timeout=None):
+            seen["url"] = url
+            seen["auth"] = (headers or {}).get("Authorization", "")
+            seen["timeout"] = timeout
+            return _FakeResp(200, "{}")
+
+        monkeypatch.setattr("requests.get", spy)
+        api._probe_llm()
+        assert seen["url"].endswith("/models")
+        assert seen["auth"].startswith("Bearer ")
+        assert seen["timeout"] == api.LLM_PROBE_TIMEOUT_S
+
+
+class TestStartupProbeMapping:
+    """探测结论 → 启动自检状态的映射（决定 /run_task 是否 fail-fast）"""
+
+    def test_ok_is_configured(self):
+        ok, reason = api._resolve_startup_from_probe("ok", "凭据有效")
+        assert ok is True
+        assert "未获结论" not in reason
+
+    def test_auth_error_is_not_configured(self):
+        ok, _ = api._resolve_startup_from_probe("auth_error", "401")
         assert ok is False
-        assert "RuntimeError" in reason
+
+    def test_unknown_is_permissive(self):
+        """未获结论时宁可放行：503 会把服务整体摘流，代价高于"先放行"。
+        若依赖真的不可用，任务失败会由 llm_error 显式上报。"""
+        ok, reason = api._resolve_startup_from_probe("unknown", "超时")
+        assert ok is True
+        assert "未获结论" in reason
 
 
 # ============================================================

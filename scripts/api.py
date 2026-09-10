@@ -40,9 +40,12 @@ v0.6.0 改动（#4 全局限流 + #7 故障注入/混沌）：
   计数器 CHAOS_INJECTED 暴露至 /metrics 与 Prometheus。
 
 v0.6.1 改动（依赖故障显式化，消除静默失败）：
-- 启动自检由"检查是否配置了 key"升级为"真实探测一次 LLM 调用"（_probe_llm，
-  复用生产调用路径）；key 失效 / 服务不可达 / 超时 → llm_configured=False，
+- 启动自检由"检查是否配置了 key"升级为"真实探测凭据"（_probe_llm：GET /models，
+  只看鉴权结论、不等模型生成）；凭据被拒（401/403）→ llm_configured=False，
   /health 同时暴露 llm_reason，/run_task 启动期即 fail-fast（503）。
+  探测**未获结论**（超时/网络异常/端点不支持）时按"可用"放行 —— 理由：所用模型
+  多为 reasoning 模型，单次生成实测 4.8~38.4s 剧烈波动，用固定超时等生成会把
+  "模型只是慢"误判为"依赖不可用"（实测踩过）；而真不可用会由运行期 llm_error 上报。
   设 PEC_SKIP_LLM_PROBE=1 可跳过探测（离线/测试环境，退回"key 非空即就绪"）。
 - /run_task 依赖故障显式化：当 LLM 调用失败且任务零步骤（空跑）时，返回
   success=False + 明确 error，而不再返回 success=True + 空答案掩盖故障。
@@ -80,6 +83,7 @@ from config import (  # noqa: E402
     CHECKPOINT_DB,
     DEFAULT_TOKEN_BUDGET,
     LLM_API_KEY,
+    LLM_BASE_URL,
     MAX_QUERY_CHARS,
     RUN_MODE,
 )
@@ -87,9 +91,10 @@ from config import (  # noqa: E402
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起
 RUN_TASK_TIMEOUT_S = float(os.getenv("PEC_RUN_TASK_TIMEOUT", "120"))
 
-# 启动自检真实探测 LLM 的超时（秒）。设 PEC_SKIP_LLM_PROBE=1 可跳过探测
+# 启动自检真实探测 LLM 的超时（秒）。探测只打一次 GET /models（约 1s），
+# 不依赖模型生成，因此这里给一个很短的上限即可。设 PEC_SKIP_LLM_PROBE=1 可跳过
 # （离线/测试环境用；跳过时只要 key 非空即视为就绪，退回旧行为）。
-LLM_PROBE_TIMEOUT_S = float(os.getenv("PEC_LLM_PROBE_TIMEOUT", "15"))
+LLM_PROBE_TIMEOUT_S = float(os.getenv("PEC_LLM_PROBE_TIMEOUT", "10"))
 
 # 独立 LLM 执行线程池：避免重耗时 LLM 调用占用默认 executor，
 # 导致轻量请求（如参数校验失败）排队等待（HOL 变体）。
@@ -344,22 +349,51 @@ def _summary() -> Dict[str, Any]:
 
 # ---------- 启动自检（lifespan）----------
 def _probe_llm() -> tuple:
-    """真实探测一次 LLM 调用，确认 key 有效且服务可达。返回 (ok, reason)。
+    """探测 LLM 凭据是否可用，返回 (status, reason)。
 
-    仅判断"是否配置了 key"不足以发现 key 失效 / 余额不足 / base_url 不可达——
-    这类问题此前要等到首个 /run_task 才以"空答案"的形式暴露（静默失败）。
-    本函数复用生产调用路径 agents.llm_utils.call_llm，用极小 prompt 真打一次，
-    失败即令 llm_configured=False，使 /run_task 在启动期就 fail-fast（503）。
+    status 取值与含义：
+      - "ok"         : 凭据有效（HTTP 200）
+      - "auth_error" : 凭据被拒（HTTP 401/403）——**确定性的配置错误**，应 fail-fast
+      - "unknown"    : 未获结论（超时 / 网络异常 / 端点不支持 /models 等）
+
+    为什么探测 GET /models 而不是真发一次对话：
+      本项目常用的模型多为 **reasoning 模型**（先输出 reasoning_content 再输出
+      content），实测单次「ping」耗时在 4.8s ~ 38.4s 之间剧烈波动。用固定超时去
+      等一次对话完成，会把「模型只是慢」误判成「依赖不可用」，导致服务启动即
+      503（实测踩过）。而鉴权结论是一次普通 GET，约 1s 且延迟稳定，
+      既快速又准确，且完全不依赖模型生成能力。
     """
-    from agents.llm_utils import call_llm, is_llm_failure
+    import requests  # 局部导入：本函数只在启动期调用一次
 
+    url = LLM_BASE_URL.rstrip("/") + "/models"
     try:
-        text, _ = call_llm("ping", "只回复 pong", role="default")
-    except Exception as exc:  # 探测本身任何异常都视为未就绪，绝不因此阻断启动
-        return False, f"LLM 探测异常：{type(exc).__name__}: {exc}"
-    if is_llm_failure(text):
-        return False, f"LLM 探测失败（key 无效 / 服务不可达）：{text}"
-    return True, "LLM 探测通过（key 有效，服务可达）"
+        resp = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {LLM_API_KEY}"},
+            timeout=LLM_PROBE_TIMEOUT_S,
+        )
+    except Exception as exc:  # 网络异常/超时均属「未获结论」，绝不因此阻断启动
+        return "unknown", f"LLM 探测未获结论（{type(exc).__name__}: {exc}）"
+
+    if resp.status_code == 200:
+        return "ok", "LLM 凭据探测通过（GET /models 返回 200）"
+    if resp.status_code in (401, 403):
+        return "auth_error", f"LLM 凭据被拒（HTTP {resp.status_code}）：{resp.text[:200]}"
+    return "unknown", f"LLM 探测未获结论（GET /models 返回 HTTP {resp.status_code}）"
+
+
+def _resolve_startup_from_probe(status: str, reason: str) -> tuple:
+    """把探测结论映射为启动自检状态 (llm_configured, llm_reason)。
+
+    只有拿到**确定性的凭据错误**才判不就绪。理由：503 会把服务整体摘流，
+    代价远高于「带着不确定先放行」——若放行后依赖真的不可用，任务失败会由
+    AgentState.llm_error 在 /run_task 响应里显式说明（见 v0.6.1 运行期上报）。
+    """
+    if status == "ok":
+        return True, reason
+    if status == "auth_error":
+        return False, reason
+    return True, reason + "（探测未获结论，已按可用处理；若依赖实际不可用，任务会显式报错）"
 
 
 @asynccontextmanager
@@ -374,18 +408,18 @@ async def lifespan(app: FastAPI):
         _STARTUP["llm_configured"] = True
         _STARTUP["llm_reason"] = "已配置 LLM_API_KEY（PEC_SKIP_LLM_PROBE=1，跳过真实探测）"
     else:
-        # 真实探测：key 已填但要确认真的能用（复用生产调用路径）
-        ok, reason = False, "LLM 探测未执行"
+        # 真实探测：key 已填但要确认真的能用（只看鉴权结论，不等模型生成）
+        status, reason = "unknown", "LLM 探测未执行"
         try:
             loop = asyncio.get_running_loop()
-            ok, reason = await asyncio.wait_for(
-                loop.run_in_executor(None, _probe_llm), timeout=LLM_PROBE_TIMEOUT_S
+            status, reason = await asyncio.wait_for(
+                loop.run_in_executor(None, _probe_llm), timeout=LLM_PROBE_TIMEOUT_S + 5
             )
         except asyncio.TimeoutError:
-            ok = False
-            reason = f"LLM 探测超时（>{LLM_PROBE_TIMEOUT_S:.0f}s），视为未就绪"
+            status, reason = "unknown", f"LLM 探测超时（>{LLM_PROBE_TIMEOUT_S:.0f}s）"
+        ok, resolved = _resolve_startup_from_probe(status, reason)
         _STARTUP["llm_configured"] = ok
-        _STARTUP["llm_reason"] = reason
+        _STARTUP["llm_reason"] = resolved
     print("=" * 50)
     print("  PECS API 启动自检")
     print(f"  LLM 配置就绪: {_STARTUP['llm_configured']} — {_STARTUP['llm_reason']}")
