@@ -92,6 +92,12 @@ class AgentState(BaseModel):
     iteration: int = 0                                  # 当前循环轮次
     step_count: int = 0                                 # 已执行步骤数（= len(results)），供 API 上报
 
+    # ===== 依赖健康 =====
+    llm_error: Optional[str] = None                     # 最近一次 LLM 调用失败的原因；None 表示无失败
+                                                        # 用途：把"静默失败"显式化——既有实现里 LLM 挂掉
+                                                        # 只会产出空计划/空答案，调用方无从区分"任务本身无解"
+                                                        # 与"依赖故障"。API 层据此对"零步骤 + LLM 失败"返回失败。
+
     # ===== 执行日志 =====
     logs: List[str] = Field(default_factory=list)       # 执行过程日志（供 Web 界面展示）
 

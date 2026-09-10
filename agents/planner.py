@@ -119,6 +119,8 @@ def planner_node(state: dict) -> dict:
     heuristic_plan = build_heuristic_plan(query, merge_steps=policy["merge_steps"]) if use_heuristics else None
     scheduler_decisions = state.get("scheduler_decisions", [])
     has_api_key = bool(LLM_API_KEY)
+    # LLM 依赖失败原因（本节点内被覆盖式写回状态；None = 本轮无 LLM 失败）
+    llm_error = None
 
     if has_api_key:
         # 真实 API 模式：LLM 为主，启发式为 fallback
@@ -168,6 +170,8 @@ def planner_node(state: dict) -> dict:
                         logs.append("[Planner] 重试成功")
                     except Exception as exc2:
                         plan_data = {}
+                        # 两次都失败 → 记录可为调用方机读的失败原因，避免"静默"降级
+                        llm_error = f"{type(exc2).__name__}: {exc2}"
                         logs.append(f"[Planner] 重试也失败: {type(exc2).__name__}")
 
             # LLM 返回空计划时尝试启发式兜底
@@ -241,6 +245,7 @@ def planner_node(state: dict) -> dict:
         "budget_events": budget_events,
         "scheduler_decisions": scheduler_decisions,
         "iteration": iteration,
+        "llm_error": llm_error,
         "logs": logs,
     }
 

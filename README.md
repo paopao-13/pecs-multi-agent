@@ -439,6 +439,8 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `RUN_MODE` | 否 | `eval` | 运行模式：`eval` 关闭工具加固（行为等同改造前）/ `business` 全部开启 |
 | `MAX_QUERY_CHARS` | 否 | 10000 | 单条 query 字符上限，超限直接 413 拦截、不进入 LLM |
 | `PEC_CHECKPOINT_DB` | 否 | `results/checkpoints.sqlite` | 断点续跑 / 链路回放所用的 SQLite 检查点文件 |
+| `PEC_SKIP_LLM_PROBE` | 否 | 空 | 置 `1` 跳过启动期的 LLM 真实探测（离线 / 测试环境）；跳过时退回「key 非空即就绪」|
+| `PEC_LLM_PROBE_TIMEOUT` | 否 | 15 | 启动期 LLM 探测超时（秒），超时视为未就绪 |
 
 配置文件（`config.py`）关键参数：
 
@@ -479,6 +481,38 @@ RUN_MODE=business TOOL_BREAKER_ENABLED=0 python scripts/api.py   # 只关熔断
 `scripts/api.py` 以多 worker 运行时各进程互不共享（跨进程需落到 Redis/SQLite，
 本期未做）。工具超时是「放弃等待」而非「真正中断线程」（Windows 无 `signal.alarm`，
 项目图是同步的），死循环工具仍会占用工作线程。
+
+
+### 依赖故障显式化（消除静默失败）
+
+LLM 是外部依赖，会失效（key 过期 / 余额耗尽 / 服务不可达）。此类故障若被「静默吞掉」，
+上游只会看到一个 `success=True` 的**空答案**，无从区分「任务本身无解」与「依赖挂掉」。
+本项目在两层把它显式化：
+
+1. **启动期真实探测**：`lifespan` 自检不再只看「有没有填 key」，而是复用生产调用路径
+   真打一次极小 LLM 请求（`_probe_llm`）。
+   - 探测通过 → `llm_configured=True`，服务进入就绪。
+   - 探测失败 / 超时 → `llm_configured=False`，`/health` 同时暴露 `llm_reason`
+     （含具体原因，如 `401 ... api key is invalid`），`/run_task` **启动期即 fail-fast 503**，
+     不会空跑消耗线程池。
+
+2. **运行期失败上报**：`call_llm` 重试耗尽后统一返回 `[LLM调用失败] <原因>` 前缀；
+   `call_llm_json` 检测到该前缀**显式抛出** `LLMInvocationError`（而非抛出误导性的
+   `JSONDecodeError`）；Planner / Synthesizer 将失败写入 `AgentState.llm_error`。
+   `/run_task` 据此判定：**LLM 失败且任务零步骤** → `success=False` + 明确 `error`，
+   不再返回 `200 + 空答案`。
+
+```bash
+# 真实探测（默认）：key 失效时启动即报未就绪
+python -m uvicorn scripts.api:app --port 8000
+curl localhost:8000/health          # → {"llm_configured": false, "llm_reason": "... 401 ..."}
+
+# 离线 / 测试：跳过探测（key 非空即视为就绪）
+PEC_SKIP_LLM_PROBE=1 python -m uvicorn scripts.api:app --port 8000
+```
+
+> 边界说明：若 LLM 失败但**启发式已兜底产出步骤**（`step_count > 0`），仍按 `success=True`
+> 返回——这属于设计内的「依赖降级」，而非「空跑」。只有零步骤 + LLM 失败才判为失败。
 
 
 ## Demo 演示

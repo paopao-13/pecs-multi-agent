@@ -39,6 +39,15 @@ v0.6.0 改动（#4 全局限流 + #7 故障注入/混沌）：
   任何传输层故障（畸形 JSON / 错误 Content-Type / 超大负载）均被结构化拒绝（400/422），绝不 panic。
   计数器 CHAOS_INJECTED 暴露至 /metrics 与 Prometheus。
 
+v0.6.1 改动（依赖故障显式化，消除静默失败）：
+- 启动自检由"检查是否配置了 key"升级为"真实探测一次 LLM 调用"（_probe_llm，
+  复用生产调用路径）；key 失效 / 服务不可达 / 超时 → llm_configured=False，
+  /health 同时暴露 llm_reason，/run_task 启动期即 fail-fast（503）。
+  设 PEC_SKIP_LLM_PROBE=1 可跳过探测（离线/测试环境，退回"key 非空即就绪"）。
+- /run_task 依赖故障显式化：当 LLM 调用失败且任务零步骤（空跑）时，返回
+  success=False + 明确 error，而不再返回 success=True + 空答案掩盖故障。
+  失败原因经 AgentState.llm_error 由 Planner/Synthesizer 上报。
+
 本地启动（开发 / 单 worker）：
     uvicorn scripts.api:app --host 0.0.0.0 --port 8000
 
@@ -77,6 +86,10 @@ from config import (  # noqa: E402
 
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起
 RUN_TASK_TIMEOUT_S = float(os.getenv("PEC_RUN_TASK_TIMEOUT", "120"))
+
+# 启动自检真实探测 LLM 的超时（秒）。设 PEC_SKIP_LLM_PROBE=1 可跳过探测
+# （离线/测试环境用；跳过时只要 key 非空即视为就绪，退回旧行为）。
+LLM_PROBE_TIMEOUT_S = float(os.getenv("PEC_LLM_PROBE_TIMEOUT", "15"))
 
 # 独立 LLM 执行线程池：避免重耗时 LLM 调用占用默认 executor，
 # 导致轻量请求（如参数校验失败）排队等待（HOL 变体）。
@@ -330,17 +343,49 @@ def _summary() -> Dict[str, Any]:
 
 
 # ---------- 启动自检（lifespan）----------
+def _probe_llm() -> tuple:
+    """真实探测一次 LLM 调用，确认 key 有效且服务可达。返回 (ok, reason)。
+
+    仅判断"是否配置了 key"不足以发现 key 失效 / 余额不足 / base_url 不可达——
+    这类问题此前要等到首个 /run_task 才以"空答案"的形式暴露（静默失败）。
+    本函数复用生产调用路径 agents.llm_utils.call_llm，用极小 prompt 真打一次，
+    失败即令 llm_configured=False，使 /run_task 在启动期就 fail-fast（503）。
+    """
+    from agents.llm_utils import call_llm, is_llm_failure
+
+    try:
+        text, _ = call_llm("ping", "只回复 pong", role="default")
+    except Exception as exc:  # 探测本身任何异常都视为未就绪，绝不因此阻断启动
+        return False, f"LLM 探测异常：{type(exc).__name__}: {exc}"
+    if is_llm_failure(text):
+        return False, f"LLM 探测失败（key 无效 / 服务不可达）：{text}"
+    return True, "LLM 探测通过（key 有效，服务可达）"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 启动即校验 LLM 配置（fail-fast 的源头：让配置缺失在启动期而非首个任务时才暴露）
-    if LLM_API_KEY:
-        _STARTUP["llm_configured"] = True
-        _STARTUP["llm_reason"] = "LLM_API_KEY 已配置"
-    else:
+    # 启动即校验 LLM 可用性（fail-fast 的源头：让配置/依赖问题在启动期而非首个任务时才暴露）
+    if not LLM_API_KEY:
         _STARTUP["llm_configured"] = False
         _STARTUP["llm_reason"] = (
             "未配置 LLM_API_KEY，/run_task 将立即返回 503（/health、/metrics 仍正常工作）"
         )
+    elif os.environ.get("PEC_SKIP_LLM_PROBE") == "1":
+        _STARTUP["llm_configured"] = True
+        _STARTUP["llm_reason"] = "已配置 LLM_API_KEY（PEC_SKIP_LLM_PROBE=1，跳过真实探测）"
+    else:
+        # 真实探测：key 已填但要确认真的能用（复用生产调用路径）
+        ok, reason = False, "LLM 探测未执行"
+        try:
+            loop = asyncio.get_running_loop()
+            ok, reason = await asyncio.wait_for(
+                loop.run_in_executor(None, _probe_llm), timeout=LLM_PROBE_TIMEOUT_S
+            )
+        except asyncio.TimeoutError:
+            ok = False
+            reason = f"LLM 探测超时（>{LLM_PROBE_TIMEOUT_S:.0f}s），视为未就绪"
+        _STARTUP["llm_configured"] = ok
+        _STARTUP["llm_reason"] = reason
     print("=" * 50)
     print("  PECS API 启动自检")
     print(f"  LLM 配置就绪: {_STARTUP['llm_configured']} — {_STARTUP['llm_reason']}")
@@ -397,6 +442,9 @@ def _execute_graph(query: str, token_budget: int, thread_id: Optional[str] = Non
         "final_answer": final_state.get("final_answer", ""),
         "token_used": final_state.get("token_used", 0),
         "step_count": final_state.get("step_count", 0),
+        # LLM 依赖失败原因（None = 无失败）：供 run_task 显式区分
+        # “任务本身无解” 与 “依赖故障导致空跑”，避免静默失败
+        "llm_error": final_state.get("llm_error"),
         # 成本归因：直接复用已有的 role_token_used / budget_events / results，不新增埋点
         "cost_report": attribute_cost(final_state),
     }
@@ -452,6 +500,8 @@ async def health() -> Dict[str, Any]:
         "uptime_seconds": round(time.time() - _metrics["start_time"], 1),
         # 启动自检结果：让运维/探针一眼看清 LLM 是否就绪（不影响 /health 自身返回 200）
         "llm_configured": _STARTUP["llm_configured"],
+        # 未就绪的具体原因（如 key 失效 / 服务不可达 / 未配置），便于运维定位
+        "llm_reason": _STARTUP["llm_reason"],
         # 当前运行模式（eval / business）：business 会打开工具加固
         "run_mode": RUN_MODE,
         "ready": True,
@@ -496,7 +546,10 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
         _record("run_task", 0.0, error=True)
         raise HTTPException(
             status_code=503,
-            detail="LLM 未配置：缺少 LLM_API_KEY，/run_task 暂不可用。请配置后重启服务。",
+            detail=(
+                f"LLM 依赖未就绪，/run_task 暂不可用：{_STARTUP['llm_reason']}。"
+                "请在 /health 查看 llm_reason，配置有效凭据后重启服务。"
+            ),
         )
 
     # #7 故障注入：llm_down 模式模拟下游 LLM 层故障 → 结构化错误（非 500），验证优雅降级
@@ -523,6 +576,23 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
             timeout=RUN_TASK_TIMEOUT_S,
         )
         latency = (time.time() - t0) * 1000.0
+        step_count = result["step_count"]
+        llm_error = result.get("llm_error")
+
+        # 依赖故障显式化：LLM 调用失败且任务未产出任何步骤 → 这是"空跑"而非"任务完成"。
+        # 既有实现会返回 success=True + 空答案，掩盖真实故障；此处改为明确的失败响应。
+        if llm_error and step_count == 0:
+            _record("run_task", latency, error=True)
+            return RunTaskResponse(
+                success=False,
+                query=req.query,
+                token_used=result["token_used"],
+                token_budget=req.token_budget,
+                steps=0,
+                cost_report=result.get("cost_report"),
+                error=f"LLM 依赖失败，任务未执行：{llm_error}",
+            )
+
         _record("run_task", latency, tokens=result["token_used"])
         return RunTaskResponse(
             success=True,
@@ -530,7 +600,7 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
             final_answer=result["final_answer"],
             token_used=result["token_used"],
             token_budget=req.token_budget,
-            steps=result["step_count"],
+            steps=step_count,
             cost_report=result.get("cost_report"),
         )
     except asyncio.TimeoutError:
