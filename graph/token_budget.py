@@ -117,6 +117,8 @@ def record_token_usage(state: dict, role: str, tokens: int) -> tuple:
         budget_events.append({
             "role": role,
             "tokens": tokens,
+            # 记录所属反思轮次，供成本归因按轮次拆分（Day4 新增，纯附加字段）
+            "iteration": state.get("iteration", 0),
             "token_used": token_used,
             "usage_ratio": round(get_usage_ratio(token_used, token_budget), 4),
             "degrade_level": get_degrade_level(token_used, token_budget),
