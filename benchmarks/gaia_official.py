@@ -10,7 +10,11 @@ GAIA 官方数据集评测模块
   - 分层统计：无附件/有附件/总体 三层准确率
   - 统计显著性：McNemar 检验（n=53 满足最低样本要求）
   - 断点续跑：复用 run_resumable.py 机制，按官方 task_id 续跑
-  - 单题超时：120 秒，超时记为失败不阻塞后续
+  - 单题超时：默认 120 秒，超时记为失败不阻塞后续。⚠️ 该超时原先只靠
+    `signal.SIGALRM` 实现，**Windows 上没有 SIGALRM ⇒ 从未生效**（单题可空转
+    十几分钟）。现已用守护线程 + join 补上（见 `_run_with_deadline`）。
+    注意：历史跑分里单题最大耗时 218.5s > 120s，若要完全对齐历史口径需
+    用 `--timeout 240`，否则那道题会被记为超时。
 
 依赖：
   - datasets, huggingface_hub (pip install)
@@ -21,6 +25,7 @@ import re
 import json
 import time
 import signal
+import threading
 from typing import Optional, List, Dict, Any, Tuple
 
 from agents.llm_utils import call_llm
@@ -32,6 +37,39 @@ from config import DEFAULT_TOKEN_BUDGET
 
 class TimeoutError(Exception):
     """单题超时异常"""
+
+
+def _run_with_deadline(fn, timeout_seconds: float):
+    """在守护线程里执行 fn，超时则放弃等待 —— Windows 无 SIGALRM 的兜底。
+
+    为什么需要它：
+      单题超时原本依赖 `signal.SIGALRM`，而 **Windows 没有 SIGALRM**，
+      `if hasattr(signal, "SIGALRM")` 会整段跳过 ⇒ 这个超时**从未在 Windows 生效**。
+      实测后果：LLM 网关一旦「只连不发」（socket read 阻塞），单题能空转十几分钟
+      （faulthandler 栈 dump 定位在 agents/llm_utils.py:152 → ssl.py read），
+      53 题串行评测随时被拖死，且没有任何提示。
+
+    做法：用 daemon 线程 + join(timeout) 补上硬上限。超时后主线程继续跑下一题；
+    卡住的线程是 daemon，不会阻塞解释器退出（代价是泄漏一个卡住的 socket）。
+
+    返回: (result, error)；超时时 result=None、error 为本模块的 TimeoutError。
+    """
+    box = {}
+
+    def _target():
+        try:
+            box["result"] = fn()
+        except BaseException as exc:  # noqa: BLE001 - 原样回传，交由上层按既有逻辑处理
+            box["error"] = exc
+
+    t = threading.Thread(target=_target, daemon=True)
+    t.start()
+    t.join(timeout_seconds)
+    if t.is_alive():
+        return None, TimeoutError(f"单题执行超时（{timeout_seconds}s）")
+    if "error" in box:
+        return None, box["error"]
+    return box.get("result"), None
     pass
 
 
@@ -454,19 +492,25 @@ def evaluate_gaia_official(
         tokens_used = 0
         error = None
         t0 = time.time()
+        def _invoke():
+            if agent_type == "multi_agent":
+                return run_task(full_question, token_budget)
+            return run_react_task(full_question, token_budget, max_steps=5)
+
         try:
             if hasattr(signal, "SIGALRM"):
                 signal.alarm(timeout_seconds)
-            if agent_type == "multi_agent":
-                state = run_task(full_question, token_budget)
-                predicted = state.get("final_answer", "")
-                tokens_used = state.get("token_used", 0)
-            else:  # react
-                state = run_react_task(full_question, token_budget, max_steps=5)
-                predicted = state.get("final_answer", "")
-                tokens_used = state.get("token_used", 0)
-            if hasattr(signal, "SIGALRM"):
-                signal.alarm(0)
+                try:
+                    state = _invoke()
+                finally:
+                    signal.alarm(0)
+            else:
+                # Windows：没有 SIGALRM，改用守护线程 + join 兜底
+                state, _err = _run_with_deadline(_invoke, timeout_seconds)
+                if _err is not None:
+                    raise _err
+            predicted = state.get("final_answer", "")
+            tokens_used = state.get("token_used", 0)
         except TimeoutError:
             error = "timeout"
             print(f"  ⚠️ 超时（{timeout_seconds}s）")

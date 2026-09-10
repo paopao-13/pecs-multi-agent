@@ -183,6 +183,30 @@ def main():
     print(f"\n完成：新增/更新 {ok} 个，跳过（已存在且大小一致）{skip} 个，"
           f"耗时 {time.time() - t0:.1f}s")
 
+    # ---- 落盘后的关键自检：数据目录会不会被路径守卫拒掉？----
+    # 黑名单含 C:\Users，而 Windows 上数据（含 HF 默认缓存 ~/.cache）默认就在
+    # C:\Users 下，还常带 "." 前缀目录（.cache）命中「隐藏文件」规则。
+    # 不自检的话表现为：附件题全部静默 0 分，而工具层返回的是「错误：禁止访问…」。
+    try:
+        sys.path.insert(0, project_root)
+        from tools.path_guard import is_forbidden_path  # noqa: E402
+
+        probe = next((e["path"] for e in selected
+                      if e["path"].startswith("2023/") and not e["path"].endswith(".parquet")), None)
+        if probe is None:
+            probe = selected[0]["path"]
+        abs_probe = os.path.join(args.dest, probe.replace("/", os.sep))
+        reason = is_forbidden_path(abs_probe)
+        if reason:
+            print(f"\n⚠️ 警告：该目录被路径守卫拦截（{reason}），附件将无法正常解析。\n"
+                  f"   请在 .env 设置：PEC_DATA_ALLOW_DIR={args.dest}\n"
+                  f"   或将镜像目录放到非 C:\\Users / 非隐藏目录下再重跑。\n"
+                  f"   自检样本：{abs_probe}")
+        else:
+            print(f"路径守卫自检：通过（{probe} 可正常解析）")
+    except Exception as e:  # 自检失败不应让下载失败
+        print(f"路径守卫自检跳过：{type(e).__name__}: {e}")
+
     # 落盘清单
     manifest = {
         "repo_id": REPO_ID,

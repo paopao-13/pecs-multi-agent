@@ -5,15 +5,28 @@
 - PDF：提取文本内容（优先 PyMuPDF，回退 pdfminer.six）
 - Excel：提取所有工作表为文本（openpyxl）
 - CSV：读取并返回表格内容（内置 csv）
+- Word（.docx）：解析 word/document.xml 的段落文本（**标准库 zipfile + ElementTree**）
+- PowerPoint（.pptx）：按页解析 ppt/slides/slideN.xml 的文本（**标准库**）
 - 图片：返回 base64 编码 + 提示用多模态模型分析
 - 纯文本：直接返回内容（兼容原 file_reader）
 
 Executor 在 Planner 规划出 file_parse 步骤时调用本工具。
+
+关于 Office 文件：
+.docx / .pptx 本质是 ZIP + XML（OOXML），用标准库即可解析，无需引入
+python-docx / python-pptx，避免为两个格式背上一串传递依赖。
+旧版二进制格式（.doc / .ppt，OLE 复合文档）无法用这种方式解析，明确报错。
 """
 import os
 import base64
+import zipfile
+import xml.etree.ElementTree as ET
 
 from tools.path_guard import is_forbidden_path
+
+# OOXML 命名空间
+_NS_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"   # WordprocessingML
+_NS_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"          # DrawingML
 
 
 def file_parser(args: dict) -> str:
@@ -56,6 +69,13 @@ def file_parser(args: dict) -> str:
             return _parse_excel(path, args.get("sheet"), max_chars)
         elif ext in (".csv",):
             return _parse_csv(path, max_chars)
+        elif ext in (".docx",):
+            return _parse_docx(path, max_chars)
+        elif ext in (".pptx",):
+            return _parse_pptx(path, max_chars)
+        elif ext in (".doc", ".ppt"):
+            # 旧版 OLE 复合文档，无法用 zipfile 解析；明确报错而不是回退成乱码
+            return f"错误：暂不支持旧版二进制格式 {ext}，请转换为 {ext}x 后再解析"
         elif ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
             return _parse_image(path, max_chars)
         else:
@@ -141,6 +161,75 @@ def _parse_csv(path: str, max_chars: int) -> str:
     except Exception as e:
         # 回退纯文本
         return _parse_text(path, max_chars)
+
+
+def _parse_docx(path: str, max_chars: int) -> str:
+    """解析 .docx（OOXML）—— 标准库 zipfile + ElementTree，零新增依赖。
+
+    结构：.docx 是 ZIP 包，正文在 `word/document.xml`；
+    段落为 `<w:p>`，文本节点为 `<w:t>`（`<w:tab/>` 制表符、`<w:br/>` 换行）。
+    表格里的文字同样包在 `<w:p>` 内，因此按文档顺序遍历所有 `<w:p>`
+    即可覆盖正文 + 表格，无需单独处理 `<w:tbl>`。
+    """
+    try:
+        with zipfile.ZipFile(path) as z:
+            if "word/document.xml" not in z.namelist():
+                return f"错误：不是有效的 .docx 文件（缺少 word/document.xml）"
+            xml_bytes = z.read("word/document.xml")
+    except zipfile.BadZipFile:
+        return f"错误：不是有效的 .docx 文件（ZIP 解析失败） '{os.path.basename(path)}'"
+
+    root = ET.fromstring(xml_bytes)
+    paras = []
+    for p in root.iter(_NS_W + "p"):
+        buf = []
+        for node in p.iter():
+            if node.tag == _NS_W + "t":
+                buf.append(node.text or "")
+            elif node.tag == _NS_W + "tab":
+                buf.append("\t")
+            elif node.tag in (_NS_W + "br", _NS_W + "cr"):
+                buf.append("\n")
+        line = "".join(buf).strip()
+        if line:
+            paras.append(line)
+
+    text = "\n".join(paras)
+    head = f"[Word文件 {os.path.basename(path)}，共{len(paras)}段]"
+    return f"{head}\n{text[:max_chars]}"
+
+
+def _parse_pptx(path: str, max_chars: int) -> str:
+    """解析 .pptx（OOXML）—— 标准库 zipfile + ElementTree，零新增依赖。
+
+    结构：幻灯片在 `ppt/slides/slideN.xml`（需按数字自然序排，不能用字符串序，
+    否则 slide10 会排在 slide2 前面），文本节点为 DrawingML 的 `<a:t>`，
+    段落为 `<a:p>`。按页分隔输出，便于 LLM 定位"第几页写了什么"。
+    """
+    import re
+
+    try:
+        with zipfile.ZipFile(path) as z:
+            slides = [n for n in z.namelist()
+                      if re.fullmatch(r"ppt/slides/slide\d+\.xml", n)]
+            if not slides:
+                return "错误：不是有效的 .pptx 文件（未找到 ppt/slides/slideN.xml）"
+            slides.sort(key=lambda n: int(re.search(r"(\d+)", os.path.basename(n)).group(1)))
+
+            out = [f"[PPT文件 {os.path.basename(path)}，共{len(slides)}页]"]
+            for idx, name in enumerate(slides, 1):
+                root = ET.fromstring(z.read(name))
+                lines = []
+                for p in root.iter(_NS_A + "p"):
+                    line = "".join(t.text or "" for t in p.iter(_NS_A + "t")).strip()
+                    if line:
+                        lines.append(line)
+                if lines:
+                    out.append(f"\n--- 第{idx}页 ---")
+                    out.extend(lines)
+            return "\n".join(out)[:max_chars]
+    except zipfile.BadZipFile:
+        return f"错误：不是有效的 .pptx 文件（ZIP 解析失败） '{os.path.basename(path)}'"
 
 
 def _parse_image(path: str, max_chars: int) -> str:

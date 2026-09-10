@@ -4,6 +4,13 @@ Web 搜索工具
 使用 duckduckgo-search 库进行真实搜索，无需 API Key。
 如果搜索失败（网络问题等），回退到 DuckDuckGo Instant Answer API，
 最后回退到模拟数据保证系统可运行。
+
+关于超时（重要，别再误判）：
+  本工具**此前被怀疑**是 GAIA 评测卡死的原因，实测（faulthandler 全线程栈 dump）
+  证明卡死点在 `agents/llm_utils.py:152` 的 LLM 调用（`ssl.py read` 阻塞），
+  与本工具无关 —— duckduckgo_search 的 `DDGS.__init__` **默认就有 timeout=10**。
+  这里仍然把超时显式化并做成可配置（`PEC_SEARCH_TIMEOUT`，默认 10 与库默认一致），
+  目的是不再依赖库的默认值：库若将来改默认或去掉该参数，我们能立刻感知。
 """
 import json
 import urllib.request
@@ -15,6 +22,10 @@ import os
 # - PEC_SEARCH_API_KEY:  对应 provider 的 API Key
 SEARCH_PROVIDER = os.getenv("PEC_SEARCH_PROVIDER", "").lower()
 SEARCH_API_KEY = os.getenv("PEC_SEARCH_API_KEY", "")
+
+# 单次搜索的 socket 超时（秒）。duckduckgo_search 的 DDGS 默认同样是 10，
+# 此处显式传入以免依赖库默认值；慢网络可调大，限流严重可调小让它更快降级。
+SEARCH_TIMEOUT = float(os.getenv("PEC_SEARCH_TIMEOUT", "10"))
 
 
 def web_search(args: dict) -> str:
@@ -98,11 +109,15 @@ def _tavily_search(query: str, num_results: int) -> str:
 
 
 def _ddgs_search(query: str, num_results: int) -> str:
-    """使用 duckduckgo-search 库进行真实搜索"""
+    """使用 duckduckgo-search 库进行真实搜索
+
+    注意：`DDGS(...)` 必须显式传 timeout。库的默认值当前也是 10，但我们不再依赖
+    它 —— 一旦库改默认或移除该参数，没有显式传值会退化成「无超时的无限等待」。
+    """
     from duckduckgo_search import DDGS
 
     snippets = []
-    with DDGS() as ddgs:
+    with DDGS(timeout=SEARCH_TIMEOUT) as ddgs:
         results = list(ddgs.text(query, max_results=num_results))
 
     if not results:

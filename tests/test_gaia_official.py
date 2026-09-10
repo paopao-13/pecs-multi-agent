@@ -289,3 +289,47 @@ class TestEvaluateAnswerLLMFallback:
             raise Exception("API error")
         monkeypatch.setattr("benchmarks.gaia_official.call_llm", mock_error)
         assert evaluate_answer_official("xxx", "yyy") is False
+
+
+class TestRunWithDeadline:
+    """单题硬超时兜底（Windows 无 SIGALRM）
+
+    历史 bug：单题超时只靠 signal.SIGALRM，Windows 上整段被跳过 ⇒ 从未生效。
+    `_run_with_deadline` 用守护线程补上，这里覆盖三条路径。
+    """
+    import time as _time
+
+    def test_fast_task_returns_result(self):
+        """正常返回：result 正确、error 为 None"""
+        from benchmarks.gaia_official import _run_with_deadline
+
+        result, error = _run_with_deadline(lambda: 42, 5)
+        assert result == 42
+        assert error is None
+
+    def test_slow_task_times_out(self):
+        """超时：result 为 None，error 是 TimeoutError（主线程不被拖死）"""
+        from benchmarks.gaia_official import _run_with_deadline, TimeoutError
+
+        def slow():
+            self._time.sleep(10)
+            return "never"
+
+        start = self._time.time()
+        result, error = _run_with_deadline(slow, 0.3)
+        elapsed = self._time.time() - start
+
+        assert result is None
+        assert isinstance(error, TimeoutError)
+        assert elapsed < 3, f"主线程被拖住了 {elapsed:.1f}s，硬超时未生效"
+
+    def test_exception_is_propagated(self):
+        """任务内部异常原样回传，不被吞掉"""
+        from benchmarks.gaia_official import _run_with_deadline
+
+        def boom():
+            raise ValueError("boom")
+
+        result, error = _run_with_deadline(boom, 5)
+        assert result is None
+        assert isinstance(error, ValueError)
