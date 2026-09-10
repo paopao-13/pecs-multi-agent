@@ -5,6 +5,8 @@ Executor 可以读取本地文件内容，用于处理用户上传的文档、�
 """
 import os
 
+from tools.path_guard import is_forbidden_path
+
 
 def file_reader(args: dict) -> str:
     """
@@ -22,24 +24,10 @@ def file_reader(args: dict) -> str:
     if not path:
         return "错误：缺少 path 参数"
 
-    # 路径安全校验：阻止路径遍历攻击
-    # 1. 规范化路径，消除 ../ 和符号链接
-    safe_base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    real_path = os.path.realpath(path)
-
-    # 2. 禁止访问系统敏感目录
-    forbidden_prefixes = [
-        "/etc", "/var", "/root", "/proc", "/sys", "/dev",
-        "C:\\Windows", "C:\\Users", "C:\\Program",
-    ]
-    for prefix in forbidden_prefixes:
-        if real_path.lower().startswith(prefix.lower()):
-            return f"错误：禁止访问系统敏感路径"
-
-    # 3. 禁止读取隐藏文件（以 . 开头的文件/目录）
-    path_parts = os.path.normpath(path).split(os.sep)
-    if any(part.startswith(".") for part in path_parts):
-        return f"错误：禁止访问隐藏文件"
+    # 路径安全校验：敏感目录 + 隐藏文件（共用守卫，跨平台生效，实现见 tools/path_guard.py）
+    reason = is_forbidden_path(path)
+    if reason in ("敏感路径", "隐藏文件"):
+        return f"错误：禁止访问{reason}"
 
     if not os.path.exists(path):
         return f"错误：文件不存在 '{path}'"

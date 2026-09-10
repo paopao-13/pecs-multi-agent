@@ -13,6 +13,8 @@ Executor 在 Planner 规划出 file_parse 步骤时调用本工具。
 import os
 import base64
 
+from tools.path_guard import is_forbidden_path
+
 
 def file_parser(args: dict) -> str:
     """
@@ -34,19 +36,10 @@ def file_parser(args: dict) -> str:
     if not path:
         return "错误：缺少 path 参数"
 
-    # 路径安全校验
-    safe_base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    real_path = os.path.realpath(path)
-    forbidden_prefixes = [
-        "/etc", "/var", "/root", "/proc", "/sys", "/dev",
-        "C:\\Windows", "C:\\Users", "C:\\Program",
-    ]
-    for prefix in forbidden_prefixes:
-        if real_path.lower().startswith(prefix.lower()):
-            return "错误：禁止访问系统敏感路径"
-    path_parts = os.path.normpath(path).split(os.sep)
-    if any(part.startswith(".") for part in path_parts):
-        return "错误：禁止访问隐藏文件"
+    # 路径安全校验（共用守卫，跨平台生效，实现见 tools/path_guard.py）
+    reason = is_forbidden_path(path)
+    if reason in ("敏感路径", "隐藏文件"):
+        return f"错误：禁止访问{reason}"
     if not os.path.exists(path):
         return f"错误：文件不存在 '{path}'"
     if not os.path.isfile(path):
