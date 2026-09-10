@@ -1,5 +1,7 @@
 # 提示词：在用户本机重跑 GAIA 官方 53 题并把真实增益写入 README
 
+> **注**：`results/gaia_official_run.json` 是重跑后生成的汇总快照（`benchmarks/gaia_official.py` 的 `run_official_comparison()` 写出），不在仓库中静态保留——旧快照已因与 `gaia_official_react.json` 数字矛盾而移除。执行 `python run_gaia_official.py` 即会自动再生。当前权威数据源是 `results/gaia_official_multi_agent.json` 与 `results/gaia_official_react.json`。
+
 > 把下面整段（含说明）直接复制，发给另一个 AI（它会在**用户的本机**上执行，沙箱代不了——因为需要真实 API Key、外网、HuggingFace 数据集）。这个 AI 要做的不是改代码，而是**配置 → 评测 → 如实记录 → 单独 commit**。
 
 ---
