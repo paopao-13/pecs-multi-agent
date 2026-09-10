@@ -43,7 +43,6 @@ results/*.json
 !results/gaia_run.json
 !results/gaia_multi_agent.json
 !results/gaia_react_baseline.json
-!results/gaia_official_run.json
 !results/gaia_official_multi_agent.json
 !results/gaia_official_react.json
 !results/webshop_run.json
@@ -53,6 +52,8 @@ results/*.json
 !results/production_bench.json
 results/traces/
 results/ckpt*.db
+results/checkpoints.sqlite
+results/*.sqlite
 results/*.log
 results/_resume_*.json
 .match_debug.log
