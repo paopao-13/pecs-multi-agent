@@ -101,6 +101,37 @@ MAX_RETRIES = _yaml_get("execution", "max_retries", default=3)            # Exec
 MAX_ITERATIONS = _yaml_get("execution", "max_iterations", default=5)      # Plan-Execute-Reflect 最大循环次数
 USE_HEURISTICS = _yaml_get("execution", "use_heuristics", default=True)   # 是否启用启发式兜底
 
+# ============ 工具包装器配置（P0 生产化增强）============
+# 优先级：环境变量 > YAML(tools.*) > 代码默认值（与文件头声明的优先级一致）
+#
+# 【设计约束 K3】所有新开关默认「关闭 / 等同改造前行为」，
+# 保证 eval 模式（跑 GAIA、WebShop 评测）的行为与本次改造前完全一致。
+
+def _env_flag(env_name: str, *yaml_keys, default: bool = False) -> bool:
+    """读取布尔开关：环境变量优先，其次 YAML，最后代码默认值。"""
+    raw = os.getenv(env_name)
+    if raw is not None:
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return bool(_yaml_get(*yaml_keys, default=default))
+
+
+def _env_number(env_name: str, *yaml_keys, default):
+    """读取数值开关：环境变量优先，其次 YAML，最后代码默认值。"""
+    raw = os.getenv(env_name)
+    if raw is not None:
+        try:
+            return type(default)(raw)
+        except (TypeError, ValueError):
+            return default
+    return _yaml_get(*yaml_keys, default=default)
+
+
+# 总开关：关闭时 execute_tool 走改造前的原路径，行为逐字一致
+TOOL_WRAPPER_ENABLED = _env_flag("TOOL_WRAPPER_ENABLED", "tools", "wrapper_enabled", default=False)
+
+# 单工具超时（秒）。仅对「只读类工具」强制生效更稳妥，见 tools/wrapper.py
+TOOL_TIMEOUT_SEC = _env_number("TOOL_TIMEOUT_SEC", "tools", "timeout_sec", default=15)
+
 # ============ Flask 配置 ============
 FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")
 FLASK_PORT = int(os.getenv("FLASK_PORT", "5000"))
