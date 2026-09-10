@@ -26,6 +26,16 @@ TRANSCRIBE_MODEL = os.getenv("PEC_TRANSCRIBE_MODEL", VISION_MODEL)
 # Wikipedia 算术页只转到 Fractions 章节就停），而题目要的数据常在页面更深处。
 # 实测 glm-5.2-vision 单次视觉调用约 50~80s，加大 token 不影响时延量级。
 VISION_MAX_TOKENS = int(os.getenv("PEC_VISION_MAX_TOKENS", "3000"))
+# 大图分块阈值：超过则切块转录（实测视觉模型对大图只"看到"一部分，finish=stop 仍截断）
+_TILE_MAX_W = int(os.getenv("PEC_VISION_TILE_MAX_W", "1400"))
+_TILE_MAX_H = int(os.getenv("PEC_VISION_TILE_MAX_H", "1100"))
+# 网关图片解码失败时视觉模型回复中的占位标记（小写匹配；中英都收）
+_VISION_FAIL_MARKERS = (
+    "图片内容描述失败", "图片内容未能成功",
+    "image content description failed", "image description failed",
+    "didn't come through", "no image data", "unable to see the image",
+    "didn't see any actual image", "image didn't load",
+)
 
 _IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
 _AUDIO_EXTS = (".mp3", ".m4a", ".wav", ".ogg", ".flac")
@@ -71,7 +81,62 @@ def multimodal_process(args: dict) -> str:
 
 
 def _describe_image(client, path: str) -> str:
-    """用视觉模型描述图片内容（文字/数字/图表转录）。"""
+    """用视觉模型描述图片内容（文字/数字/图表转录）。
+
+    大图分块：实测视觉模型对大图（宽 >约1400px）只"看到"上半/左半部分——
+    finish_reason=stop、远未到 max_tokens 就宣称「content cuts off here」
+    （GAIA 9318445f 的 1726×842 截图转录到中部即止，8000 token 上限也一样）。
+    故超过阈值时切成带重叠的分块逐块转录再合并。阈值可经
+    PEC_VISION_TILE_MAX_W / PEC_VISION_TILE_MAX_H 调整（设极大值可关闭分块）。
+    """
+    import os
+    try:
+        from PIL import Image
+        with Image.open(path) as im:
+            w, h = im.size
+    except Exception:
+        w, h = 0, 0  # 无法探测尺寸时退化为单图描述
+
+    if w <= _TILE_MAX_W and h <= _TILE_MAX_H:
+        return _describe_single(client, path)
+
+    cols = 2 if w > _TILE_MAX_W else 1
+    rows = 2 if h > _TILE_MAX_H else 1
+    try:
+        from PIL import Image
+        im = Image.open(path).convert("RGB")
+    except Exception as e:
+        return f"[多模态处理失败] 打开图片失败: {type(e).__name__}: {str(e)[:120]}"
+
+    tw, th = im.size
+    ox, oy = int(tw / cols * 0.12), int(th / rows * 0.12)  # 12% 重叠防切断文字
+    parts = []
+    for r in range(rows):
+        for c in range(cols):
+            left = max(0, c * tw // cols - (ox if c else 0))
+            top = max(0, r * th // rows - (oy if r else 0))
+            right = min(tw, (c + 1) * tw // cols + (ox if c < cols - 1 else 0))
+            bottom = min(th, (r + 1) * th // rows + (oy if r < rows - 1 else 0))
+            tile = im.crop((left, top, right, bottom))
+            import tempfile
+            fd, tmp = tempfile.mkstemp(suffix=".jpg")
+            os.close(fd)
+            try:
+                tile.save(tmp, format="JPEG", quality=88)
+                desc = _describe_single(client, tmp)
+            finally:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+            if desc.startswith("[多模态处理失败]"):
+                return desc  # 任一块解码失败即整体失败，宁缺毋假
+            parts.append(f"[图片分块 {r+1}/{rows} 行, {c+1}/{cols} 列]\n{desc}")
+    return "\n\n".join(parts)
+
+
+def _describe_single(client, path: str) -> str:
+    """单张（或单块）图片的一次视觉转录。"""
     import base64
     mime = "image/png" if path.lower().endswith(".png") else "image/jpeg"
     with open(path, "rb") as f:
@@ -91,11 +156,14 @@ def _describe_image(client, path: str) -> str:
         max_tokens=VISION_MAX_TOKENS,
     )
     content = resp.choices[0].message.content or ""
-    # 网关侧图片解码失败时，视觉模型实际收到的是占位文本而非图片，
-    # 回复形如「…[图片内容描述失败]…请重新上传…」。这种「假成功」必须显式化为
-    # 失败串，让评测侧按 multimodal_skip 记录，而不是把客套话当附件描述注入题面
-    # （实测：GAIA cca530fc 棋盘图在该网关 3 个 vision 模型 + PNG/JPEG 重编码均如此）。
-    if "图片内容描述失败" in content or "图片内容未能成功" in content:
+    # 网关侧图片解码失败时，视觉模型实际收到的是占位文本而非图片，回复形如
+    #「…[图片内容描述失败]…请重新上传…」（中文）或「the image didn't come through /
+    #  no image data」（英文，实测换英文提问时就是这版措辞）。这种「假成功」必须
+    # 显式化为失败串，让评测侧按 multimodal_skip 记录，而不是把客套话当附件描述
+    # 注入题面（实测：GAIA cca530fc 棋盘图在该网关 3 个 vision 模型 + PNG/JPEG
+    # 重编码均如此；9318445f 的右侧分块也复现）。
+    low = content.lower()
+    if any(m in low for m in _VISION_FAIL_MARKERS):
         return "[多模态处理失败] 视觉后端未读取到图片数据（网关侧图片解码失败）"
     return content
 
