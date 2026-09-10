@@ -357,6 +357,17 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="PECS Multi-Agent API", version="0.6.0", lifespan=lifespan)
 
 
+def _ensure_db_dir(db_path: str) -> None:
+    """确保检查点文件所在目录存在。
+
+    CHECKPOINT_DB 可能是裸文件名（PEC_CHECKPOINT_DB 覆盖时 dirname 为空串），
+    此时无需建目录——直接 os.makedirs("") 会抛 FileNotFoundError。
+    """
+    db_dir = os.path.dirname(db_path)
+    if db_dir:
+        os.makedirs(db_dir, exist_ok=True)
+
+
 # ---------- 同步执行体（在线程池中跑，避免阻塞事件循环）----------
 def _execute_graph(query: str, token_budget: int, thread_id: Optional[str] = None) -> Dict[str, Any]:
     """在 worker 线程中运行四角色图（同步阻塞调用）。
@@ -372,7 +383,7 @@ def _execute_graph(query: str, token_budget: int, thread_id: Optional[str] = Non
     if thread_id:
         from langgraph.checkpoint.sqlite import SqliteSaver
 
-        os.makedirs(os.path.dirname(CHECKPOINT_DB), exist_ok=True)
+        _ensure_db_dir(CHECKPOINT_DB)
         with SqliteSaver.from_conn_string(CHECKPOINT_DB) as saver:
             compiled_graph = build_graph(token_budget, checkpointer=saver)
             final_state = compiled_graph.invoke(
@@ -411,16 +422,22 @@ class RunTaskResponse(BaseModel):
     error: Optional[str] = None
 
 
+_EMPTY_QUERY_MSG = "query 不能为空"
+
+
 def _validate_query(query: str) -> Optional[str]:
     """入口输入校验，返回错误说明；无问题返回 None。
 
-    当前仅做长度上限：超限直接拦截，不进入 LLM（省成本、防滥用）。
-    上限来自 config.MAX_QUERY_CHARS（默认 10000，可由 MAX_QUERY_CHARS 环境变量覆盖）。
+    两类问题分别对应不同 HTTP 状态码，由调用方据返回值判定：
+      - 空 / 全空白  → 400（_EMPTY_QUERY_MSG）
+      - 超过长度上限 → 413（长度上限来自 config.MAX_QUERY_CHARS，默认 10000，
+                           可由 MAX_QUERY_CHARS 环境变量覆盖）
+
+    校验发生在 LLM 可用性检查之前：坏输入即使 LLM 未配置也应得到明确的
+    请求错误，而不是被 503（依赖不可用）吞掉。
     """
-    if query is None:
-        return "query 不能为空"
-    if not query.strip():
-        return "query 不能为空"
+    if query is None or not query.strip():
+        return _EMPTY_QUERY_MSG
     if len(query) > MAX_QUERY_CHARS:
         return f"query 过长：{len(query)} 字符，超过上限 {MAX_QUERY_CHARS} 字符"
     return None
@@ -465,15 +482,13 @@ async def metrics_prom() -> Response:
 async def run_task(req: RunTaskRequest) -> RunTaskResponse:
     # 输入校验优先于依赖可用性检查：即便 LLM 未配置，坏输入也应得到明确的 400/413，
     # 而不是被 503（依赖不可用）吞掉，便于上游正确区分“请求错误”与“服务不可用”
-    if not req.query or not req.query.strip():
+    validation_error = _validate_query(req.query)
+    if validation_error:
         _record("run_task", 0.0, error=True)
-        raise HTTPException(status_code=400, detail="query 不能为空")
-
-    # 长度校验：超长输入直接拦截，不进入 LLM（省成本 + 防滥用）
-    too_long = _validate_query(req.query)
-    if too_long and too_long != "query 不能为空":
-        _record("run_task", 0.0, error=True)
-        raise HTTPException(status_code=413, detail=too_long)
+        raise HTTPException(
+            status_code=400 if validation_error == _EMPTY_QUERY_MSG else 413,
+            detail=validation_error,
+        )
 
     # 启动自检未通过 → fail-fast 真正 503，让负载均衡/编排器正确摘流，
     # 而非在图深处崩出难懂异常（也避免空跑消耗线程池）

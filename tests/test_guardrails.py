@@ -112,6 +112,34 @@ class TestRunMode:
         ) is False
 
 
+class TestMappingEnvOverride:
+    """映射型配置（如权限白名单）也要支持环境变量覆盖，保持与开关一致的优先级口径。"""
+
+    _KEYS = ("TOOL_PERMISSION_MAP", "tools", "permission", "map")
+
+    def test_env_json_overrides_yaml(self, monkeypatch):
+        monkeypatch.setenv("TOOL_PERMISSION_MAP", '{"executor_node": ["search"]}')
+        assert config._env_mapping(*self._KEYS, default={}) == {"executor_node": ["search"]}
+
+    def test_invalid_json_falls_back(self, monkeypatch):
+        monkeypatch.setenv("TOOL_PERMISSION_MAP", "{not-json")
+        assert config._env_mapping(*self._KEYS, default={}) == {}
+
+    def test_non_object_json_falls_back(self, monkeypatch):
+        monkeypatch.setenv("TOOL_PERMISSION_MAP", '["a", "b"]')
+        assert config._env_mapping(*self._KEYS, default={}) == {}
+
+    def test_default_used_when_env_absent(self, monkeypatch):
+        monkeypatch.delenv("TOOL_PERMISSION_MAP", raising=False)
+        assert config._env_mapping(*self._KEYS, default={}) == {}
+
+    def test_yaml_value_is_used_as_fallback(self, monkeypatch):
+        monkeypatch.delenv("TOOL_PERMISSION_MAP", raising=False)
+        yaml_cfg = {"tools": {"permission": {"map": {"critic_node": "*"}}}}
+        monkeypatch.setattr(config, "_yaml_config", yaml_cfg)
+        assert config._env_mapping(*self._KEYS, default={}) == {"critic_node": "*"}
+
+
 # ============================================================
 # 2. 入口输入校验
 # ============================================================
