@@ -67,7 +67,7 @@ _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 sys.path.insert(0, os.path.dirname(_ROOT))
 
-from config import DEFAULT_TOKEN_BUDGET, LLM_API_KEY  # noqa: E402
+from config import DEFAULT_TOKEN_BUDGET, LLM_API_KEY, MAX_QUERY_CHARS, RUN_MODE  # noqa: E402
 
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起
 RUN_TASK_TIMEOUT_S = float(os.getenv("PEC_RUN_TASK_TIMEOUT", "120"))
@@ -382,6 +382,21 @@ class RunTaskResponse(BaseModel):
     error: Optional[str] = None
 
 
+def _validate_query(query: str) -> Optional[str]:
+    """入口输入校验，返回错误说明；无问题返回 None。
+
+    当前仅做长度上限：超限直接拦截，不进入 LLM（省成本、防滥用）。
+    上限来自 config.MAX_QUERY_CHARS（默认 10000，可由 MAX_QUERY_CHARS 环境变量覆盖）。
+    """
+    if query is None:
+        return "query 不能为空"
+    if not query.strip():
+        return "query 不能为空"
+    if len(query) > MAX_QUERY_CHARS:
+        return f"query 过长：{len(query)} 字符，超过上限 {MAX_QUERY_CHARS} 字符"
+    return None
+
+
 # ---------- 端点 ----------
 @app.get("/health")
 async def health() -> Dict[str, Any]:
@@ -391,6 +406,8 @@ async def health() -> Dict[str, Any]:
         "uptime_seconds": round(time.time() - _metrics["start_time"], 1),
         # 启动自检结果：让运维/探针一眼看清 LLM 是否就绪（不影响 /health 自身返回 200）
         "llm_configured": _STARTUP["llm_configured"],
+        # 当前运行模式（eval / business）：business 会打开工具加固
+        "run_mode": RUN_MODE,
         "ready": True,
     }
     _record("health", (time.time() - t0) * 1000.0)
@@ -417,11 +434,17 @@ async def metrics_prom() -> Response:
 
 @app.post("/run_task", response_model=RunTaskResponse, dependencies=[_rate_limit_dep("run_task")])
 async def run_task(req: RunTaskRequest) -> RunTaskResponse:
-    # 输入校验优先于依赖可用性检查：即便 LLM 未配置，坏输入也应得到明确的 400/422，
+    # 输入校验优先于依赖可用性检查：即便 LLM 未配置，坏输入也应得到明确的 400/413，
     # 而不是被 503（依赖不可用）吞掉，便于上游正确区分“请求错误”与“服务不可用”
     if not req.query or not req.query.strip():
         _record("run_task", 0.0, error=True)
         raise HTTPException(status_code=400, detail="query 不能为空")
+
+    # 长度校验：超长输入直接拦截，不进入 LLM（省成本 + 防滥用）
+    too_long = _validate_query(req.query)
+    if too_long and too_long != "query 不能为空":
+        _record("run_task", 0.0, error=True)
+        raise HTTPException(status_code=413, detail=too_long)
 
     # 启动自检未通过 → fail-fast 真正 503，让负载均衡/编排器正确摘流，
     # 而非在图深处崩出难懂异常（也避免空跑消耗线程池）

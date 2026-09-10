@@ -148,7 +148,14 @@ def executor_node(state: dict) -> dict:
         args["code"] = _sanitize_python_code(args["code"], logs)
 
     # 调用工具执行
-    result = execute_tool(action, args)
+    # context 用于结构化日志与权限校验（node_name 决定权限白名单命中）。
+    # 工具加固开关（TOOL_WRAPPER_ENABLED 等）默认关闭时，context 不产生任何行为差异，
+    # eval 模式（跑评测）因此与改造前逐字一致。
+    result = execute_tool(action, args, context={
+        "thread_id": state.get("thread_id", "-"),
+        "node_name": "executor_node",
+        "iteration": current_idx,
+    })
     executor_tokens += estimate_tokens(result)
 
     # 记录执行结果
