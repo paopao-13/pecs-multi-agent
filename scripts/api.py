@@ -433,7 +433,7 @@ async def lifespan(app: FastAPI):
     _cleanup_prometheus()
 
 
-app = FastAPI(title="PECS Multi-Agent API", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="PECS Multi-Agent API", version="0.6.1", lifespan=lifespan)
 
 
 def _ensure_db_dir(db_path: str) -> None:

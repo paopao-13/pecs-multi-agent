@@ -319,7 +319,7 @@ python run_webshop.py --tasks 12
 # 3. 可恢复驱动运行（断点续跑，生产级稳定性）
 python run_resumable.py "你的任务描述"
 
-# 4. 生产级 API 服务（FastAPI async v0.6.0 + 独立 LLM 线程池 + 启动自检 + Prometheus 多进程指标 + 全局限流 + 混沌工程）
+# 4. 生产级 API 服务（FastAPI async v0.6.1 + 独立 LLM 线程池 + 启动自检 + Prometheus 多进程指标 + 全局限流 + 混沌工程）
 uvicorn scripts.api:app --host 0.0.0.0 --port 8000 --workers 1
 # 提供 /health（存活探针，含 llm_configured 就绪状态；LLM 负载下 P95 < 13ms）
 #      /metrics（JSON：按 endpoint 分桶延迟直方图 + 真实 token 计量 + 错误率；单 worker / 开发态便利端点）
