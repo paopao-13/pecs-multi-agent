@@ -58,6 +58,9 @@ def synthesizer_node(state: dict) -> dict:
     iteration = state.get("iteration", 0)
     complexity = state.get("complexity", "medium")
     logs = state.get("logs", [])
+    # LLM 依赖失败标记：默认沿用上游（如 Planner）已记录的失败，
+    # 仅当本节点自身的 LLM 综合失败时才覆盖，避免把上游的失败"洗掉"。
+    llm_error = state.get("llm_error")
 
     logs.append(f"[Synthesizer] 开始综合 {len(results)} 个步骤的结果")
 
@@ -117,6 +120,7 @@ def synthesizer_node(state: dict) -> dict:
             final_answer, token_consumed = call_llm(prompt, SYNTHESIZER_SYSTEM_PROMPT, role="synthesizer")
             # LLM 失败时回退到启发式
             if not final_answer or final_answer.startswith("[LLM调用失败]"):
+                llm_error = final_answer or "[LLM调用失败] 空响应"
                 if heuristic_answer:
                     final_answer = heuristic_answer
                     direct_extractive_answer = True
@@ -205,6 +209,7 @@ def synthesizer_node(state: dict) -> dict:
         "budget_events": budget_events,
         "scheduler_decisions": scheduler_decisions,
         "iteration": iteration + 1,
+        "llm_error": llm_error,
         "logs": logs,
     }
 

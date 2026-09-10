@@ -17,6 +17,29 @@ from typing import Optional
 from langchain_openai import ChatOpenAI
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS
 
+# ========== LLM 失败信号（统一约定）==========
+# call_llm 在重试耗尽后返回的文本统一以此为前缀。
+# 该前缀本就是项目既有约定（agents/heuristics.py 的 _FAIL_MARKERS、
+# agents/synthesizer.py 的 startswith 判定、run_resumable.py 的失败特征词
+# 均已按此前缀识别失败）；此处将其正式化为模块级常量，供下游机读，
+# 避免"文字约定"散落在各处、易漏。
+LLM_FAILURE_PREFIX = "[LLM调用失败]"
+
+
+class LLMInvocationError(RuntimeError):
+    """LLM 调用失败（重试耗尽后仍未成功）。
+
+    为兼容既有调用方，call_llm 仍返回 (失败文本, 0)；但需要结构化输出的下游
+    （call_llm_json → Planner/Critic）会在检测到失败前缀时显式抛出本异常，
+    从而走各自的 fallback 分支，而不是拿一段无法解析的文本后抛出
+    JSONDecodeError 这类**误导性**异常、把真正的依赖故障掩盖掉。
+    """
+
+
+def is_llm_failure(text) -> bool:
+    """判断 call_llm 返回的文本是否为失败信号。"""
+    return isinstance(text, str) and text.startswith(LLM_FAILURE_PREFIX)
+
 # ========== 按角色配置 temperature ==========
 ROLE_TEMPERATURES = {
     "planner":     0.3,   # 规划：需要一点创造性
@@ -91,8 +114,9 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
 
     返回:
         (response_text, token_used)
-        - response_text: LLM 返回的文本
-        - token_used: 本次调用消耗的总 Token 数
+        - response_text: LLM 返回的文本；**调用失败时为 f"{LLM_FAILURE_PREFIX} <原因>"**，
+          调用方可经 is_llm_failure(response_text) 判定，切勿把失败文本当正常答案使用
+        - token_used: 本次调用消耗的总 Token 数（失败时为 0）
 
     包含自动重试机制（3次，指数退避），应对 API 限流和临时网络错误。
     """
@@ -157,7 +181,7 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
             # 非限流错误或重试耗尽，直接返回失败
             break
 
-    return f"[LLM调用失败] {last_error}", 0
+    return f"{LLM_FAILURE_PREFIX} {last_error}", 0
 
 
 def call_llm_json(prompt: str, system_prompt: str = "", role: str = "default") -> tuple:
@@ -171,8 +195,18 @@ def call_llm_json(prompt: str, system_prompt: str = "", role: str = "default") -
 
     返回:
         (parsed_dict, token_used)
+
+    抛出:
+        LLMInvocationError: LLM 调用本身失败（重试耗尽）。显式抛出而非返回
+            失败文本，避免下游误把失败文本当"格式错误的 JSON"处理。
     """
     response_text, token_used = call_llm(prompt, system_prompt, role)
+
+    # 依赖故障（key 失效 / 服务不可达 / 限流耗尽）→ 显式抛出，
+    # 让 Planner/Critic 的 fallback 分支按"LLM 不可用"处理，
+    # 而不是在一段非 JSON 文本上抛 JSONDecodeError 掩盖真实原因。
+    if is_llm_failure(response_text):
+        raise LLMInvocationError(response_text)
 
     try:
         # 尝试直接解析
