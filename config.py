@@ -7,6 +7,12 @@
   2. experiments/config.yaml — 用于模型参数、预算阈值、执行限制等实验配置
   3. 代码级默认值（本文件硬编码）— 兜底，确保无 YAML 时也可运行
 
+运行模式（RUN_MODE，默认 eval）：
+  eval     — 关闭工具加固（熔断/幂等/权限），行为等同改造前，保证评测可复现
+  business — 打开全部工具加固，面向生产
+  工具加固开关的取值优先级：环境变量 > business 模式覆盖 > YAML > 代码默认值。
+  即：环境变量永远最高（可逐项逃生），business 模式覆盖 YAML 里的 eval 基线值。
+
 多 Provider 支持：
   通过 LLM_API_KEY / LLM_BASE_URL / LLM_MODEL 环境变量配置任意 OpenAI 兼容的 LLM。
   兼容旧的 DEEPSEEK_* 变量名（LLM_* 优先）。
@@ -33,6 +39,8 @@ YAML 配置与代码参数映射关系：
 """
 import os
 from pathlib import Path
+from typing import Optional
+
 from dotenv import load_dotenv
 
 # 加载 .env 文件中的环境变量（本地开发用，部署时通过平台环境变量注入）
@@ -108,16 +116,30 @@ MAX_ITERATIONS = _yaml_get("execution", "max_iterations", default=5)      # Plan
 USE_HEURISTICS = _yaml_get("execution", "use_heuristics", default=True)   # 是否启用启发式兜底
 
 # ============ 工具包装器配置（P0 生产化增强）============
-# 优先级：环境变量 > YAML(tools.*) > 代码默认值（与文件头声明的优先级一致）
+# 优先级：环境变量 > business 模式覆盖 > YAML(tools.*) > 代码默认值
 #
-# 【设计约束 K3】所有新开关默认「关闭 / 等同改造前行为」，
-# 保证 eval 模式（跑 GAIA、WebShop 评测）的行为与本次改造前完全一致。
+# 【设计约束 K3】eval 模式（默认）下所有加固开关均为「关闭 / 等同改造前行为」，
+# 保证评测（跑 GAIA、WebShop）的行为与本次改造前完全一致。
 
-def _env_flag(env_name: str, *yaml_keys, default: bool = False) -> bool:
-    """读取布尔开关：环境变量优先，其次 YAML，最后代码默认值。"""
+# 运行模式：eval（默认，等同改造前） / business（开启全部加固）
+RUN_MODE = (
+    os.getenv("RUN_MODE") or _yaml_get("runtime", "run_mode", default="eval") or "eval"
+).strip().lower()
+IS_BUSINESS_MODE = RUN_MODE == "business"
+
+
+def _env_flag(env_name: str, *yaml_keys, default: bool = False,
+              business_default: Optional[bool] = None) -> bool:
+    """读取布尔开关。
+
+    优先级：环境变量 > business 模式覆盖 > YAML > 代码默认值。
+    环境变量始终最高，作为逐项逃生舱（business 模式下也可单独关掉某一项）。
+    """
     raw = os.getenv(env_name)
     if raw is not None:
         return raw.strip().lower() in ("1", "true", "yes", "on")
+    if business_default is not None and IS_BUSINESS_MODE:
+        return bool(business_default)
     return bool(_yaml_get(*yaml_keys, default=default))
 
 
@@ -132,29 +154,41 @@ def _env_number(env_name: str, *yaml_keys, default):
     return _yaml_get(*yaml_keys, default=default)
 
 
-# 总开关：关闭时 execute_tool 走改造前的原路径，行为逐字一致
-TOOL_WRAPPER_ENABLED = _env_flag("TOOL_WRAPPER_ENABLED", "tools", "wrapper_enabled", default=False)
+# 单条 query 最大字符数：超限直接拦截，不进入 LLM（对齐 benchmark_production 的 10K 超长用例）
+MAX_QUERY_CHARS = _env_number("MAX_QUERY_CHARS", "runtime", "max_query_chars", default=10000)
 
-# 单工具超时（秒）。仅对「只读类工具」强制生效更稳妥，见 tools/wrapper.py
+# 总开关：关闭时 execute_tool 走改造前的原路径，行为逐字一致
+TOOL_WRAPPER_ENABLED = _env_flag(
+    "TOOL_WRAPPER_ENABLED", "tools", "wrapper_enabled", default=False, business_default=True
+)
+
+# 单工具超时（秒）。eval 模式下总开关关闭 → 工具层不做超时，等价于「不限制超时」，
+# 与改造前一致；business 模式才真正启用该超时。
 TOOL_TIMEOUT_SEC = _env_number("TOOL_TIMEOUT_SEC", "tools", "timeout_sec", default=15)
 
 # ---- Day2：熔断 ----
 # 连续失败达阈值即熔断，期间直接返回降级提示、不再执行工具；RESET_SEC 后自动半开。
 # 【单进程有效】状态存于进程内存，scripts/api.py 若用多 worker / 多进程，各进程
 # 的计数互不共享（详见 tools/wrapper.py 的 docstring 说明）。
-TOOL_BREAKER_ENABLED = _env_flag("TOOL_BREAKER_ENABLED", "tools", "breaker", "enabled", default=False)
+TOOL_BREAKER_ENABLED = _env_flag(
+    "TOOL_BREAKER_ENABLED", "tools", "breaker", "enabled", default=False, business_default=True
+)
 TOOL_BREAKER_THRESHOLD = _env_number("TOOL_BREAKER_THRESHOLD", "tools", "breaker", "threshold", default=3)
 TOOL_BREAKER_RESET_SEC = _env_number("TOOL_BREAKER_RESET_SEC", "tools", "breaker", "reset_sec", default=60)
 
 # ---- Day2：幂等 ----
 # 键 = thread_id + 工具名 + 参数哈希；【仅只读工具】缓存（见 tools/wrapper.py READ_ONLY_TOOLS），
 # 有副作用的工具（python / api_call / webshop）不缓存，避免掩盖副作用。
-TOOL_IDEMPOTENT_ENABLED = _env_flag("TOOL_IDEMPOTENT_ENABLED", "tools", "idempotent", "enabled", default=False)
+TOOL_IDEMPOTENT_ENABLED = _env_flag(
+    "TOOL_IDEMPOTENT_ENABLED", "tools", "idempotent", "enabled", default=False, business_default=True
+)
 
 # ---- Day2：权限白名单 ----
 # 配置「节点名 -> 允许调用的工具列表」；未配置的节点默认全允许（宽松兜底）。
 # 越权调用返回 PERMISSION_DENIED 且【不执行】工具。
-TOOL_PERMISSION_ENABLED = _env_flag("TOOL_PERMISSION_ENABLED", "tools", "permission", "enabled", default=False)
+TOOL_PERMISSION_ENABLED = _env_flag(
+    "TOOL_PERMISSION_ENABLED", "tools", "permission", "enabled", default=False, business_default=True
+)
 TOOL_PERMISSION_MAP = _yaml_get("tools", "permission", "map", default={}) or {}
 
 # ============ Flask 配置 ============

@@ -47,8 +47,17 @@ execution:
   max_retries: 3
   use_heuristics: true
 
+# 运行模式与入口校验
+runtime:
+  # eval: 关闭工具加固，行为等同改造前（默认，保证评测可复现）
+  # business: 打开全部工具加固（熔断/幂等/权限）
+  # 环境变量 RUN_MODE 优先；单条开关仍可用环境变量逐项覆盖
+  run_mode: eval
+  # 单条 query 最大字符数，超限直接拦截、不进入 LLM
+  max_query_chars: 10000
+
 # P0 生产化增强：工具统一包装器
-# 所有开关默认关闭/等同改造前行为，eval 模式（跑评测）不受影响
+# eval 模式（默认）下这些开关均不生效；business 模式会自动打开
 tools:
   # 总开关：false 时 execute_tool 走改造前原路径
   wrapper_enabled: false

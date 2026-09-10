@@ -223,9 +223,10 @@ class TestExecutorSuccessDetection:
     def test_executor_failure_with_error_prefix(self, monkeypatch):
         """工具返回以错误标记开头 → success=False"""
         # mock execute_tool 返回统一错误前缀格式的结果
+        # （executor 会传入 context 关键字参数，mock 需接受 **kwargs）
         monkeypatch.setattr(
             "agents.executor.execute_tool",
-            lambda action, args: "执行错误：division by zero",
+            lambda action, args, **kwargs: "执行错误：division by zero",
         )
         # mock call_llm 以防参数不完整时调用
         monkeypatch.setattr(
@@ -250,7 +251,7 @@ class TestExecutorSuccessDetection:
         """正常结果 → success=True"""
         monkeypatch.setattr(
             "agents.executor.execute_tool",
-            lambda action, args: "42",
+            lambda action, args, **kwargs: "42",
         )
         monkeypatch.setattr(
             "agents.executor.call_llm",
