@@ -24,6 +24,12 @@ YAML 配置与代码参数映射关系：
   execution.max_iterations      → MAX_ITERATIONS
   execution.max_retries         → MAX_RETRIES
   execution.use_heuristics      → USE_HEURISTICS（默认值，运行时可覆盖）
+  tools.wrapper_enabled         → TOOL_WRAPPER_ENABLED
+  tools.timeout_sec             → TOOL_TIMEOUT_SEC
+  tools.breaker.*               → TOOL_BREAKER_ENABLED / _THRESHOLD / _RESET_SEC
+  tools.idempotent.enabled      → TOOL_IDEMPOTENT_ENABLED
+  tools.permission.enabled      → TOOL_PERMISSION_ENABLED
+  tools.permission.map          → TOOL_PERMISSION_MAP
 """
 import os
 from pathlib import Path
@@ -131,6 +137,25 @@ TOOL_WRAPPER_ENABLED = _env_flag("TOOL_WRAPPER_ENABLED", "tools", "wrapper_enabl
 
 # 单工具超时（秒）。仅对「只读类工具」强制生效更稳妥，见 tools/wrapper.py
 TOOL_TIMEOUT_SEC = _env_number("TOOL_TIMEOUT_SEC", "tools", "timeout_sec", default=15)
+
+# ---- Day2：熔断 ----
+# 连续失败达阈值即熔断，期间直接返回降级提示、不再执行工具；RESET_SEC 后自动半开。
+# 【单进程有效】状态存于进程内存，scripts/api.py 若用多 worker / 多进程，各进程
+# 的计数互不共享（详见 tools/wrapper.py 的 docstring 说明）。
+TOOL_BREAKER_ENABLED = _env_flag("TOOL_BREAKER_ENABLED", "tools", "breaker", "enabled", default=False)
+TOOL_BREAKER_THRESHOLD = _env_number("TOOL_BREAKER_THRESHOLD", "tools", "breaker", "threshold", default=3)
+TOOL_BREAKER_RESET_SEC = _env_number("TOOL_BREAKER_RESET_SEC", "tools", "breaker", "reset_sec", default=60)
+
+# ---- Day2：幂等 ----
+# 键 = thread_id + 工具名 + 参数哈希；【仅只读工具】缓存（见 tools/wrapper.py READ_ONLY_TOOLS），
+# 有副作用的工具（python / api_call / webshop）不缓存，避免掩盖副作用。
+TOOL_IDEMPOTENT_ENABLED = _env_flag("TOOL_IDEMPOTENT_ENABLED", "tools", "idempotent", "enabled", default=False)
+
+# ---- Day2：权限白名单 ----
+# 配置「节点名 -> 允许调用的工具列表」；未配置的节点默认全允许（宽松兜底）。
+# 越权调用返回 PERMISSION_DENIED 且【不执行】工具。
+TOOL_PERMISSION_ENABLED = _env_flag("TOOL_PERMISSION_ENABLED", "tools", "permission", "enabled", default=False)
+TOOL_PERMISSION_MAP = _yaml_get("tools", "permission", "map", default={}) or {}
 
 # ============ Flask 配置 ============
 FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")

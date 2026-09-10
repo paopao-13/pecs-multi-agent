@@ -54,6 +54,18 @@ tools:
   wrapper_enabled: false
   # 单工具超时（秒）
   timeout_sec: 15
+  # 熔断：连续失败达阈值即熔断，reset_sec 后自动半开（【单进程有效】）
+  breaker:
+    enabled: false
+    threshold: 3
+    reset_sec: 60
+  # 幂等：仅只读工具缓存（search/web_browse/file_read/file_parse/multimodal）
+  idempotent:
+    enabled: false
+  # 权限白名单：节点名 -> 允许的工具列表；留空/未配置的节点默认全允许
+  permission:
+    enabled: false
+    map: {}
 
 evaluation:
   gaia_samples: 28

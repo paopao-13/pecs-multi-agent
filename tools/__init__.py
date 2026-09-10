@@ -72,6 +72,9 @@ def execute_tool(action: str, args: dict, context: dict = None) -> str:
     说明:
         TOOL_WRAPPER_ENABLED=false（默认）时走改造前的原路径，行为逐字一致；
         开启后走 tools/wrapper.py，获得超时、异常分类、结构化日志。
+        熔断 / 幂等 / 权限白名单是包装器内部能力，各自有独立子开关
+        （TOOL_BREAKER_ENABLED / TOOL_IDEMPOTENT_ENABLED / TOOL_PERMISSION_ENABLED），
+        仅在总开关 TOOL_WRAPPER_ENABLED=true 时生效，且同样默认关闭。
     """
     tool_fn = TOOL_REGISTRY.get(action)
     if tool_fn is None:

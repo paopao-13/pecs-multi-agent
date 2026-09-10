@@ -1,8 +1,8 @@
 """
 工具统一包装器（P0 生产化增强）
 
-Day1 范围：超时控制 + 异常分类 + 结构化日志 + 功能开关。
-熔断 / 幂等 / 权限白名单在 Day2 追加。
+Day1：超时控制 + 异常分类 + 结构化日志 + 功能开关。
+Day2：熔断 + 幂等 + 权限白名单（全部受子开关控制，默认关闭）。
 
 ============================ 设计约束（勿违反） ============================
 
@@ -19,15 +19,39 @@ K2 项目是同步的
 K3 开关默认关闭
    所有能力默认关闭，保证 eval 模式（跑 GAIA / WebShop 评测）行为与改造前
    逐字一致。
+
+============================ 已知局限（主动披露） ============================
+
+L1 熔断状态仅单进程有效
+   计数存于本进程内存字典。scripts/api.py 若以多 worker（uvicorn --workers>1
+   或 gunicorn 多进程）运行，各 worker 的计数互不共享，熔断阈值只在单进程
+   内成立。若要跨进程共享，需落到外部存储（Redis / SQLite），本期不做。
+
+L2 幂等缓存有上限且是进程内 LRU
+   最多缓存 _IDEMPOTENT_MAX 条，超出按插入顺序淘汰最旧项。同样不跨进程。
+
+L3 超时是「放弃等待」而非「真正中断」
+   见 run_with_timeout 的说明。
 """
+import hashlib
 import json
 import logging
+import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from enum import Enum
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from config import TOOL_TIMEOUT_SEC
+from config import (
+    TOOL_BREAKER_ENABLED,
+    TOOL_BREAKER_RESET_SEC,
+    TOOL_BREAKER_THRESHOLD,
+    TOOL_IDEMPOTENT_ENABLED,
+    TOOL_PERMISSION_ENABLED,
+    TOOL_PERMISSION_MAP,
+    TOOL_TIMEOUT_SEC,
+)
 
 # 模块级 logger：调用方可按需配置 handler；测试用 caplog 捕获
 logger = logging.getLogger("pecs.tools.wrapper")
@@ -43,6 +67,7 @@ class ToolErrorType(str, Enum):
     INVALID_ARGS = "INVALID_ARGS"          # 参数缺失 / 类型错误
     SANDBOX_ERR = "SANDBOX_ERR"            # 被 AST 安全沙箱拦截
     PERMISSION_DENIED = "PERMISSION_DENIED"  # 角色越权（Day2 启用）
+    CIRCUIT_OPEN = "CIRCUIT_OPEN"          # 熔断开启，调用被短路（Day2 启用）
     UNKNOWN = "UNKNOWN"                    # 未归类异常
 
 
@@ -56,6 +81,7 @@ _ERROR_TEXT = {
     ToolErrorType.INVALID_ARGS: "执行错误：工具 {name} 参数无效",
     ToolErrorType.SANDBOX_ERR: "安全检查未通过：工具 {name} 被沙箱拦截",
     ToolErrorType.PERMISSION_DENIED: "执行错误：工具 {name} 越权，当前节点无权调用",
+    ToolErrorType.CIRCUIT_OPEN: "执行错误：工具 {name} 处于熔断状态（连续失败达阈值，约 {sec}s 后自动恢复）",
     ToolErrorType.UNKNOWN: "执行错误：工具 {name} 执行异常",
 }
 
@@ -117,6 +143,141 @@ def run_with_timeout(
         executor.shutdown(wait=False)
 
 
+# ============================================================
+# Day2-1 只读工具白名单（幂等只对这些工具生效）
+# ============================================================
+# 只读 = 重复调用不产生副作用，可安全缓存返回。
+# 反例：python（可写文件 / 改变状态）、api_call（可能是 POST）、
+# webshop（会产生选择动作）——缓存会掩盖副作用，故一律不缓存。
+READ_ONLY_TOOLS = frozenset({"search", "web_browse", "file_read", "file_parse", "multimodal"})
+
+
+# ============================================================
+# Day2-2 熔断器
+# ============================================================
+# 【局限 L1】仅单进程有效：状态是本进程内存字典，多 worker 不共享。
+_breaker_state: Dict[str, Dict[str, Any]] = {}
+_breaker_lock = threading.Lock()
+
+
+def breaker_record_failure(action: str) -> None:
+    """记录一次失败；连续失败达阈值即打开熔断（记录 opened_at）。"""
+    with _breaker_lock:
+        state = _breaker_state.setdefault(action, {"failures": 0, "opened_at": None})
+        state["failures"] += 1
+        if state["failures"] >= TOOL_BREAKER_THRESHOLD:
+            state["opened_at"] = time.monotonic()
+
+
+def breaker_record_success(action: str) -> None:
+    """一次成功即清零该工具的连续失败计数（半开成功 → 完全恢复）。"""
+    with _breaker_lock:
+        _breaker_state.pop(action, None)
+
+
+def breaker_is_open(action: str, now: Optional[float] = None) -> bool:
+    """判断某工具是否处于熔断中。
+
+    RESET_SEC 到期后自动「半开」：清掉计数并放行本次调用，由随后的
+    成功/失败重新决定是否再次熔断。
+    """
+    if not TOOL_BREAKER_ENABLED:
+        return False
+    now = time.monotonic() if now is None else now
+    with _breaker_lock:
+        state = _breaker_state.get(action)
+        if not state or state.get("failures", 0) < TOOL_BREAKER_THRESHOLD:
+            return False
+        opened_at = state.get("opened_at")
+        if opened_at is None:
+            return False
+        if now - opened_at >= TOOL_BREAKER_RESET_SEC:
+            _breaker_state.pop(action, None)  # 半开：放行探测
+            return False
+        return True
+
+
+def reset_breakers() -> None:
+    """清空全部熔断状态（测试 / 运维手动复位用）。"""
+    with _breaker_lock:
+        _breaker_state.clear()
+
+
+# ============================================================
+# Day2-3 幂等缓存
+# ============================================================
+# 【局限 L2】进程内 LRU，最多 _IDEMPOTENT_MAX 条，不跨进程。
+_IDEMPOTENT_MAX = 512
+_idempotent_cache: "OrderedDict[str, str]" = OrderedDict()
+_idempotent_lock = threading.Lock()
+
+
+def idempotency_key(action: str, args: Any, context: Optional[Dict[str, Any]]) -> str:
+    """幂等键 = thread_id + 工具名 + 参数哈希。
+
+    thread_id 取自 context（缺省 "-"）：同一任务内重复调用同工具同参数
+    才会命中缓存；不同 thread_id 之间不串味。
+    """
+    thread_id = (context or {}).get("thread_id", "-")
+    try:
+        payload = json.dumps(args, sort_keys=True, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        payload = str(args)
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
+    return f"{thread_id}|{action}|{digest}"
+
+
+def _idempotent_lookup(key: str) -> Optional[str]:
+    with _idempotent_lock:
+        if key in _idempotent_cache:
+            _idempotent_cache.move_to_end(key)  # LRU：命中即刷新
+            return _idempotent_cache[key]
+        return None
+
+
+def _idempotent_store(key: str, result: str) -> None:
+    with _idempotent_lock:
+        _idempotent_cache[key] = result
+        _idempotent_cache.move_to_end(key)
+        while len(_idempotent_cache) > _IDEMPOTENT_MAX:
+            _idempotent_cache.popitem(last=False)
+
+
+def clear_idempotent_cache() -> None:
+    """清空幂等缓存（测试 / 运维用）。"""
+    with _idempotent_lock:
+        _idempotent_cache.clear()
+
+
+# ============================================================
+# Day2-4 权限白名单
+# ============================================================
+# 节点名 -> 允许的工具列表（或 "*" 表示全允许）。
+# 未配置的节点默认全允许（宽松兜底），保持对旧调用方兼容。
+PERMISSION_MAP: Dict[str, Any] = dict(TOOL_PERMISSION_MAP or {})
+
+
+def check_permission(action: str, context: Optional[Dict[str, Any]]) -> bool:
+    """判断当前调用上下文是否有权执行该工具。
+
+    返回 False 表示越权，调用方必须【不执行】工具。
+    无节点信息（context 缺 node_name）时不拦截——权限机制依赖调用方
+    显式传 node_name，未接线前等价于不启用。
+    """
+    if not TOOL_PERMISSION_ENABLED:
+        return True
+    node = (context or {}).get("node_name")
+    if not node:
+        return True
+    allowed = PERMISSION_MAP.get(node)
+    if allowed is None or allowed == "*":
+        return True
+    try:
+        return action in set(allowed)
+    except TypeError:  # 配置写错类型时不误伤：按放行处理
+        return True
+
+
 def _digest(args: Any, max_len: int = 200) -> str:
     """参数摘要：进日志前截断，避免超长参数/大段文本把日志打爆，也顺带减少敏感信息落盘。"""
     if args is None:
@@ -135,29 +296,29 @@ def log_tool_call(
     ok: bool,
     error_type: Optional[ToolErrorType] = None,
     args: Any = None,
+    extra: Optional[Dict[str, Any]] = None,
 ) -> None:
     """输出一条结构化工具调用日志。
 
     字段固定：thread_id / node / tool / duration_ms / ok / error_type / args_digest，
-    便于事后按 thread_id 串起一条完整链路。
+    便于事后按 thread_id 串起一条完整链路。extra 用于附加旁路信息
+    （如 cached / throttled），不改变固定字段。
     """
     ctx = context or {}
-    logger.info(
-        json.dumps(
-            {
-                "event": "tool_call",
-                "tool": action,
-                "thread_id": ctx.get("thread_id", "-"),
-                "node": ctx.get("node_name", "-"),
-                "iteration": ctx.get("iteration"),
-                "duration_ms": round(duration * 1000, 1),
-                "ok": ok,
-                "error_type": error_type.value if error_type else None,
-                "args_digest": _digest(args),
-            },
-            ensure_ascii=False,
-        )
-    )
+    record: Dict[str, Any] = {
+        "event": "tool_call",
+        "tool": action,
+        "thread_id": ctx.get("thread_id", "-"),
+        "node": ctx.get("node_name", "-"),
+        "iteration": ctx.get("iteration"),
+        "duration_ms": round(duration * 1000, 1),
+        "ok": ok,
+        "error_type": error_type.value if error_type else None,
+        "args_digest": _digest(args),
+    }
+    if extra:
+        record.update(extra)
+    logger.info(json.dumps(record, ensure_ascii=False))
 
 
 def format_error(action: str, error_type: ToolErrorType, **fmt) -> str:
@@ -175,17 +336,57 @@ def invoke_tool(
 ) -> Tuple[str, Optional[ToolErrorType], float]:
     """包装一次工具调用。
 
+    检查顺序（短路即返回，且【不执行】工具）：
+      1. 权限白名单：越权 → PERMISSION_DENIED
+      2. 熔断器    ：熔断中 → CIRCUIT_OPEN
+      3. 幂等缓存  ：只读工具命中 → 直接返回缓存
+      4. 真正执行  ：run_with_timeout
+
     返回: (结果字符串, 错误类型 | None, 耗时秒)
     结果字符串始终以 _ERROR_MARKERS 前缀表达失败，保证与 is_tool_success 一致。
     """
+    # ---- 1. 权限白名单：越权不执行 ----
+    if not check_permission(action, context):
+        duration = 0.0
+        message = format_error(action, ToolErrorType.PERMISSION_DENIED)
+        log_tool_call(
+            action, context, duration, ok=False,
+            error_type=ToolErrorType.PERMISSION_DENIED, args=args,
+            extra={"denied": True},
+        )
+        return message, ToolErrorType.PERMISSION_DENIED, duration
+
+    # ---- 2. 熔断器：熔断中不执行 ----
+    if breaker_is_open(action):
+        duration = 0.0
+        message = format_error(action, ToolErrorType.CIRCUIT_OPEN, sec=TOOL_BREAKER_RESET_SEC)
+        log_tool_call(
+            action, context, duration, ok=False,
+            error_type=ToolErrorType.CIRCUIT_OPEN, args=args,
+            extra={"breaker": "open"},
+        )
+        return message, ToolErrorType.CIRCUIT_OPEN, duration
+
+    # ---- 3. 幂等缓存：仅只读工具 ----
+    use_cache = TOOL_IDEMPOTENT_ENABLED and action in READ_ONLY_TOOLS
+    cache_key = idempotency_key(action, args, context) if use_cache else None
+    if use_cache:
+        cached = _idempotent_lookup(cache_key)
+        if cached is not None:
+            log_tool_call(
+                action, context, 0.0, ok=True, error_type=None, args=args,
+                extra={"cached": True},
+            )
+            return cached, None, 0.0
+
+    # ---- 4. 真正执行 ----
     timeout = TOOL_TIMEOUT_SEC if timeout is None else timeout
-    started = time.perf_counter()
     result, exc, duration = run_with_timeout(tool_fn, args, timeout)
 
     if exc is not None:
         error_type = classify_error(exc)
-        sec = timeout
-        message = format_error(action, error_type, sec=sec)
+        message = format_error(action, error_type, sec=timeout)
+        breaker_record_failure(action)
         log_tool_call(action, context, duration, ok=False, error_type=error_type, args=args)
         return message, error_type, duration
 
@@ -193,8 +394,12 @@ def invoke_tool(
     if result is None or (isinstance(result, str) and not result.strip()):
         error_type = ToolErrorType.UNKNOWN
         message = format_error(action, error_type) + "（返回空结果）"
+        breaker_record_failure(action)
         log_tool_call(action, context, duration, ok=False, error_type=error_type, args=args)
         return message, error_type, duration
 
+    breaker_record_success(action)
+    if use_cache:
+        _idempotent_store(cache_key, result)
     log_tool_call(action, context, duration, ok=True, error_type=None, args=args)
     return result, None, duration

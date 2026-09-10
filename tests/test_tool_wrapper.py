@@ -7,20 +7,42 @@
   3. 超时控制（正常 / 超时 / 异常）
   4. invoke_tool 的统一返回形态
   5. 开关行为：关闭时走原路径（等同改造前），开启时走包装器
+  6. 【Day2】熔断：阈值触发 / 半开自愈 / 熔断时不执行工具
+  7. 【Day2】幂等：仅只读工具缓存 / 参数与线程隔离 / 副作用工具不缓存
+  8. 【Day2】权限白名单：越权拒绝且不执行 / 未配置节点默认放行
 """
 import json
 import time
 
 import pytest
 
+import tools.wrapper as wrapper
 from tools import _ERROR_MARKERS, execute_tool, is_tool_success
 from tools.wrapper import (
+    READ_ONLY_TOOLS,
     ToolErrorType,
+    breaker_is_open,
+    breaker_record_failure,
+    breaker_record_success,
+    check_permission,
     classify_error,
+    clear_idempotent_cache,
     format_error,
+    idempotency_key,
     invoke_tool,
+    reset_breakers,
     run_with_timeout,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_wrapper_state():
+    """熔断计数与幂等缓存是模块级全局状态，每个用例前后清空，避免相互污染。"""
+    reset_breakers()
+    clear_idempotent_cache()
+    yield
+    reset_breakers()
+    clear_idempotent_cache()
 
 
 # ============================================================
@@ -184,3 +206,259 @@ class TestWrapperSwitch:
     def test_unknown_tool_message_unchanged(self):
         """未知工具的提示不因开关而变"""
         assert execute_tool("不存在的工具", {}).startswith("错误：未知工具")
+
+
+# ============================================================
+# 6. Day2 熔断
+# ============================================================
+
+def _counting_tool(counter, result="结果"):
+    """返回一个会记录调用次数的假工具。"""
+    def fn(args):
+        counter.append(args)
+        return result
+    return fn
+
+
+class TestCircuitBreaker:
+    def test_disabled_never_opens(self, monkeypatch):
+        """熔断开关关闭时，无论失败多少次都不熔断（等同改造前）"""
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", False)
+        for _ in range(10):
+            breaker_record_failure("search")
+        assert breaker_is_open("search") is False
+
+    def test_opens_after_threshold(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+        breaker_record_failure("search")
+        breaker_record_failure("search")
+        assert breaker_is_open("search") is False  # 未达阈值
+        breaker_record_failure("search")
+        assert breaker_is_open("search") is True   # 达阈值
+
+    def test_success_resets_failure_counter(self, monkeypatch):
+        """成功一次即清零，避免「历史累计失败」误触发熔断"""
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+        breaker_record_failure("search")
+        breaker_record_failure("search")
+        breaker_record_success("search")
+        breaker_record_failure("search")
+        breaker_record_failure("search")
+        assert breaker_is_open("search") is False
+
+    def test_auto_resets_after_window(self, monkeypatch):
+        """RESET_SEC 到期后自动半开，清空计数并放行"""
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_RESET_SEC", 60)
+        for _ in range(3):
+            breaker_record_failure("search")
+        assert breaker_is_open("search") is True
+        # 把打开时间回拨到窗口之外，模拟 60s 已过
+        wrapper._breaker_state["search"]["opened_at"] = time.monotonic() - 61
+        assert breaker_is_open("search") is False
+        assert "search" not in wrapper._breaker_state  # 半开时已清空
+
+    def test_isolated_per_tool(self, monkeypatch):
+        """熔断按工具隔离：search 熔断不影响 python"""
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+        for _ in range(3):
+            breaker_record_failure("search")
+        assert breaker_is_open("search") is True
+        assert breaker_is_open("python") is False
+
+    def test_invoke_short_circuits_when_open(self, monkeypatch):
+        """熔断中调用必须【不执行】工具，直接返回 CIRCUIT_OPEN"""
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+        for _ in range(3):
+            breaker_record_failure("search")
+
+        calls = []
+        result, error_type, duration = invoke_tool(_counting_tool(calls), "search", {}, timeout=2)
+        assert error_type == ToolErrorType.CIRCUIT_OPEN
+        assert calls == []  # 关键：工具未被调用
+        assert duration == 0.0
+        assert is_tool_success(result) is False
+
+    def test_repeated_failures_open_breaker_through_invoke(self, monkeypatch):
+        """端到端：invoke_tool 连续失败达阈值后自动熔断，后续调用被短路"""
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+
+        def boom(_args):
+            raise ValueError("炸了")
+
+        for _ in range(3):
+            invoke_tool(boom, "search", {}, timeout=2)
+        assert breaker_is_open("search") is True
+
+        calls = []
+        _, error_type, _ = invoke_tool(_counting_tool(calls), "search", {}, timeout=2)
+        assert error_type == ToolErrorType.CIRCUIT_OPEN
+        assert calls == []
+
+    def test_success_through_invoke_keeps_breaker_closed(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+        fn = lambda args: "ok"  # noqa: E731
+        for _ in range(5):
+            invoke_tool(fn, "search", {}, timeout=2)
+        assert breaker_is_open("search") is False
+
+
+# ============================================================
+# 7. Day2 幂等
+# ============================================================
+
+class TestIdempotency:
+    def test_read_only_set_is_expected(self):
+        """只读工具集合必须与设计一致（写/副作用工具绝不在内）"""
+        assert READ_ONLY_TOOLS == frozenset(
+            {"search", "web_browse", "file_read", "file_parse", "multimodal"}
+        )
+        assert "python" not in READ_ONLY_TOOLS
+        assert "api_call" not in READ_ONLY_TOOLS
+        assert "webshop" not in READ_ONLY_TOOLS
+
+    def test_disabled_calls_tool_every_time(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_IDEMPOTENT_ENABLED", False)
+        calls = []
+        fn = _counting_tool(calls, "缓存值")
+        invoke_tool(fn, "search", {"query": "x"}, context={"thread_id": "t1"}, timeout=2)
+        invoke_tool(fn, "search", {"query": "x"}, context={"thread_id": "t1"}, timeout=2)
+        assert len(calls) == 2
+
+    def test_read_only_tool_is_cached(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_IDEMPOTENT_ENABLED", True)
+        calls = []
+        fn = _counting_tool(calls, "缓存值")
+        r1, e1, _ = invoke_tool(fn, "search", {"query": "x"}, context={"thread_id": "t1"}, timeout=2)
+        r2, e2, _ = invoke_tool(fn, "search", {"query": "x"}, context={"thread_id": "t1"}, timeout=2)
+        assert r1 == r2 == "缓存值"
+        assert e1 is None and e2 is None
+        assert len(calls) == 1  # 第二次命中缓存，未执行
+
+    def test_side_effect_tool_not_cached(self, monkeypatch):
+        """python / api_call / webshop 有副作用，绝不缓存"""
+        monkeypatch.setattr(wrapper, "TOOL_IDEMPOTENT_ENABLED", True)
+        calls = []
+        fn = _counting_tool(calls, "ok")
+        for _ in range(2):
+            invoke_tool(fn, "python", {"code": "print(1)"}, context={"thread_id": "t1"}, timeout=2)
+        assert len(calls) == 2
+
+    def test_different_args_not_shared(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_IDEMPOTENT_ENABLED", True)
+        calls = []
+        fn = _counting_tool(calls, "ok")
+        invoke_tool(fn, "search", {"query": "a"}, context={"thread_id": "t1"}, timeout=2)
+        invoke_tool(fn, "search", {"query": "b"}, context={"thread_id": "t1"}, timeout=2)
+        assert len(calls) == 2
+
+    def test_different_thread_not_shared(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_IDEMPOTENT_ENABLED", True)
+        calls = []
+        fn = _counting_tool(calls, "ok")
+        invoke_tool(fn, "search", {"query": "a"}, context={"thread_id": "t1"}, timeout=2)
+        invoke_tool(fn, "search", {"query": "a"}, context={"thread_id": "t2"}, timeout=2)
+        assert len(calls) == 2
+
+    def test_key_is_order_insensitive(self):
+        """参数字典键顺序不同不应产生不同幂等键"""
+        k1 = idempotency_key("search", {"a": 1, "b": 2}, {"thread_id": "t"})
+        k2 = idempotency_key("search", {"b": 2, "a": 1}, {"thread_id": "t"})
+        assert k1 == k2
+
+    def test_failed_call_is_not_cached(self, monkeypatch):
+        """失败结果不进缓存，否则会把一次失败固化成后续所有调用的结果"""
+        monkeypatch.setattr(wrapper, "TOOL_IDEMPOTENT_ENABLED", True)
+        attempts = {"n": 0}
+
+        def flaky(_args):
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise ValueError("第一次失败")
+            return "第二次成功"
+
+        _, error_type, _ = invoke_tool(flaky, "search", {"query": "x"}, context={"thread_id": "t1"}, timeout=2)
+        assert error_type == ToolErrorType.INVALID_ARGS
+        r2, e2, _ = invoke_tool(flaky, "search", {"query": "x"}, context={"thread_id": "t1"}, timeout=2)
+        assert r2 == "第二次成功"
+        assert e2 is None
+        assert attempts["n"] == 2  # 失败未缓存，第二次真正执行
+
+
+# ============================================================
+# 8. Day2 权限白名单
+# ============================================================
+
+class TestPermissionWhitelist:
+    def test_disabled_allows_all(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", False)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": ["search"]})
+        assert check_permission("api_call", {"node_name": "executor_node"}) is True
+
+    def test_missing_context_allows(self, monkeypatch):
+        """无调用上下文时不拦截（权限依赖显式 node_name）"""
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", True)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": ["search"]})
+        assert check_permission("api_call", None) is True
+        assert check_permission("api_call", {"thread_id": "t1"}) is True
+
+    def test_unconfigured_node_allows_by_default(self, monkeypatch):
+        """未在 map 里配置的节点默认全允许（宽松兜底）"""
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", True)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": ["search"]})
+        assert check_permission("api_call", {"node_name": "critic_node"}) is True
+
+    def test_whitelisted_tool_allowed(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", True)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": ["search", "python"]})
+        assert check_permission("search", {"node_name": "executor_node"}) is True
+        assert check_permission("python", {"node_name": "executor_node"}) is True
+
+    def test_non_whitelisted_tool_denied(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", True)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": ["search"]})
+        assert check_permission("api_call", {"node_name": "executor_node"}) is False
+
+    def test_wildcard_allows_all(self, monkeypatch):
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", True)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": "*"})
+        assert check_permission("api_call", {"node_name": "executor_node"}) is True
+
+    def test_denied_call_does_not_execute_tool(self, monkeypatch):
+        """越权时必须【不执行】工具，直接返回 PERMISSION_DENIED"""
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", True)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": ["search"]})
+
+        calls = []
+        result, error_type, duration = invoke_tool(
+            _counting_tool(calls), "api_call", {"url": "http://evil"},
+            context={"node_name": "executor_node"}, timeout=2,
+        )
+        assert error_type == ToolErrorType.PERMISSION_DENIED
+        assert calls == []  # 关键：工具未被调用
+        assert duration == 0.0
+        assert is_tool_success(result) is False
+
+    def test_permission_precedence_over_breaker(self, monkeypatch):
+        """同时越权且熔断时，优先返回 PERMISSION_DENIED（权限是策略层，先于可用性层）"""
+        monkeypatch.setattr(wrapper, "TOOL_PERMISSION_ENABLED", True)
+        monkeypatch.setattr(wrapper, "PERMISSION_MAP", {"executor_node": ["search"]})
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_ENABLED", True)
+        monkeypatch.setattr(wrapper, "TOOL_BREAKER_THRESHOLD", 3)
+        for _ in range(3):
+            breaker_record_failure("api_call")
+
+        calls = []
+        _, error_type, _ = invoke_tool(
+            _counting_tool(calls), "api_call", {}, context={"node_name": "executor_node"}, timeout=2,
+        )
+        assert error_type == ToolErrorType.PERMISSION_DENIED
+        assert calls == []
+
