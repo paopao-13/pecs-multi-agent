@@ -355,6 +355,7 @@ app = FastAPI(title="PECS Multi-Agent API", version="0.6.0", lifespan=lifespan)
 def _execute_graph(query: str, token_budget: int) -> Dict[str, Any]:
     """在 worker 线程中运行四角色图（同步阻塞调用）。"""
     from graph.builder import build_graph, create_initial_state  # 延迟导入
+    from metrics.cost_attribution import attribute_cost  # 延迟导入
 
     compiled_graph = build_graph(token_budget)
     initial_state = create_initial_state(query, token_budget)
@@ -363,6 +364,8 @@ def _execute_graph(query: str, token_budget: int) -> Dict[str, Any]:
         "final_answer": final_state.get("final_answer", ""),
         "token_used": final_state.get("token_used", 0),
         "step_count": final_state.get("step_count", 0),
+        # 成本归因：直接复用已有的 role_token_used / budget_events / results，不新增埋点
+        "cost_report": attribute_cost(final_state),
     }
 
 
@@ -379,6 +382,8 @@ class RunTaskResponse(BaseModel):
     token_used: int = 0
     token_budget: int = 0
     steps: int = 0
+    # 成本归因报告（按角色/工具/轮次拆分）；失败时为空
+    cost_report: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -485,6 +490,7 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
             token_used=result["token_used"],
             token_budget=req.token_budget,
             steps=result["step_count"],
+            cost_report=result.get("cost_report"),
         )
     except asyncio.TimeoutError:
         latency = (time.time() - t0) * 1000.0
