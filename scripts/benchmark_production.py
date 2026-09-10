@@ -479,15 +479,27 @@ def measure_error_handling() -> Dict[str, Any]:
     }
     print(f"  6a 空输入 → HTTP {s.status_code} ({'✅' if s.status_code == 400 else '❌'}) {s.error or ''}")
 
-    # 6b: 超长 query (10K chars) —— 会走完整多智能体图，放宽超时到 30s
-    long_q = "A" * 10000
-    s = http_post_json(iso_url, {"query": long_q}, timeout=30)
-    results["long_query_10k"] = {
+    # 6b: 超长 query（上限 + 1）—— 必须被 413 挡在校验层，绝不允许进入完整链路。
+    # 为什么从"固定 10000 字符"改为"上限 + 1"：
+    #   旧用例硬编码 10000，恰好等于当时 MAX_QUERY_CHARS 的默认值，于是**合法**，
+    #   会完整跑一遍四角色图 —— 实测耗时 30028ms 并占满 worker 30s+，客户端超时
+    #   （status_code=0）。而基准只记录不断言，CI 照绿，等于这个 DoS 面一直没人管。
+    #   现在用例跟着 config 的上限走，并强制断言 413（见 evaluate_ci_gates）。
+    from config import MAX_QUERY_CHARS
+
+    long_q = "A" * (MAX_QUERY_CHARS + 1)
+    s = http_post_json(iso_url, {"query": long_q}, timeout=10)
+    results["long_query_over_limit"] = {
         "status_code": s.status_code,
+        "returned_413": s.status_code == 413,
         "latency_ms": round(s.latency_ms, 2),
         "error": s.error,
+        "limit": MAX_QUERY_CHARS,
     }
-    print(f"  6b 超长输入(10K) → HTTP {s.status_code} ({'✅ 未崩' if s.status_code in (200, 400, 422) else '❌'}) {s.error or ''}")
+    print(
+        f"  6b 超长输入({MAX_QUERY_CHARS + 1} 字符) → HTTP {s.status_code} "
+        f"({'✅ 已拦截' if s.status_code == 413 else '❌ 未拦截，会打满 worker'}) {s.error or ''}"
+    )
 
     # 6c: 缺少 query 字段
     s = http_post_json(iso_url, {"not_query": "hello"}, timeout=10)
@@ -776,6 +788,14 @@ def evaluate_ci_gates(result: "BenchmarkResult", p95_threshold_ms: float = 100.0
             failures.append("M6 空输入未返回 HTTP 400")
         if not eh.get("missing_field", {}).get("returned_422"):
             failures.append("M6 缺字段未返回 HTTP 422")
+        # 超长输入必须被挡在校验层：否则会跑完整图占满 worker（实测 30s+），
+        # 4 个这样的请求即可让服务无响应，且历史上基准只记录不断言，CI 一直绿。
+        long_q = eh.get("long_query_over_limit", {})
+        if long_q and not long_q.get("returned_413"):
+            failures.append(
+                f"M6 超长输入未被 413 拦截（实际 HTTP {long_q.get('status_code')}，"
+                f"上限 {long_q.get('limit')}）—— 会导致 worker 被长任务占满"
+            )
     else:
         failures.append("M6 隔离服务启动失败，容错未验证")
 

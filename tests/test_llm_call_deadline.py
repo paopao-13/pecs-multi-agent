@@ -74,7 +74,11 @@ def test_deadline_skips_backoff(monkeypatch, _with_key):
 
 
 def test_deadline_disabled_preserves_backoff(monkeypatch, _with_key):
-    """LLM_CALL_DEADLINE=0 → 保留旧行为（8/16s 退避、共 3 次尝试），确保可回退"""
+    """LLM_CALL_DEADLINE=0 → 保留退避与 3 次尝试，确保可回退。
+
+    注：退避值改为等额抖动（见 agents/llm_utils.py），故这里断言区间而非定值：
+    第一次 ∈ [4, 8]（base=8 的 half~full），第二次 ∈ [8, 16]（base=16）。
+    """
     monkeypatch.setenv("LLM_CALL_DEADLINE", "0")
     slept = []
     monkeypatch.setattr(time, "sleep", lambda s: slept.append(s))
@@ -84,5 +88,7 @@ def test_deadline_disabled_preserves_backoff(monkeypatch, _with_key):
     out, _ = lu.call_llm("hi", role="executor")
 
     assert lu.is_llm_failure(out)
-    assert slept == [8, 16], f"旧行为应保持 8/16 退避，实际 {slept}"
+    assert len(slept) == 2, f"应退避两次（3 次尝试），实际 {slept}"
+    assert 4.0 <= slept[0] <= 8.0, f"第一次退避应在 [4,8]，实际 {slept[0]}"
+    assert 8.0 <= slept[1] <= 16.0, f"第二次退避应在 [8,16]，实际 {slept[1]}"
     assert fake.calls == 3

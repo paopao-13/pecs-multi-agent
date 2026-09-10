@@ -88,8 +88,12 @@ from config import (  # noqa: E402
     RUN_MODE,
 )
 
-# /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起
-RUN_TASK_TIMEOUT_S = float(os.getenv("PEC_RUN_TASK_TIMEOUT", "120"))
+# /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起。
+#
+# 默认 120 → 300 的依据（2026-09-11 实测）：修复 Office 附件解析后，带附件的题
+# 端到端实测 248.7s（.docx）/ 260.4s（.pptx），120s 会把刚修好的题**系统性判超时**，
+# 把「能力不够」和「时间不够」混为一谈。300s 与 benchmarks 侧的单题超时默认值一致。
+RUN_TASK_TIMEOUT_S = float(os.getenv("PEC_RUN_TASK_TIMEOUT", "300"))
 
 # 启动自检真实探测 LLM 的超时（秒）。探测只打一次 GET /models（约 1s），
 # 不依赖模型生成，因此这里给一个很短的上限即可。设 PEC_SKIP_LLM_PROBE=1 可跳过
@@ -512,8 +516,12 @@ def _validate_query(query: str) -> Optional[str]:
 
     两类问题分别对应不同 HTTP 状态码，由调用方据返回值判定：
       - 空 / 全空白  → 400（_EMPTY_QUERY_MSG）
-      - 超过长度上限 → 413（长度上限来自 config.MAX_QUERY_CHARS，默认 10000，
-                           可由 MAX_QUERY_CHARS 环境变量覆盖）
+      - 超过长度上限 → 413（上限含端点：len(query) > MAX_QUERY_CHARS 才拒绝，
+                           即最多接受 MAX_QUERY_CHARS 个字符）
+
+    上限默认 4000（原为 10000，实测 10000 字符会完整跑一遍四角色图、耗时 30s+，
+    4 个这样的请求即可占满全部 worker —— 详见 config.py 的注释）。
+    它挡的是「合法但极耗」的输入：这类输入之前的保护形同虚设。
 
     校验发生在 LLM 可用性检查之前：坏输入即使 LLM 未配置也应得到明确的
     请求错误，而不是被 503（依赖不可用）吞掉。

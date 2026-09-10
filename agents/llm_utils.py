@@ -195,7 +195,15 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
                 "timeout", "connection", "temporarily", "unavailable"
             ])
             if is_rate_limit and attempt < max_retries - 1:
-                wait = 8 * (2 ** attempt)  # 8s, 16s, 32s（比原 15/30/60 更温和）
+                import random as _random
+
+                base = 8 * (2 ** attempt)  # 8s, 16s, 32s（比原 15/30/60 更温和）
+                # 等额抖动（equal jitter）：实际等待 ∈ [base/2, base]。
+                # 为什么必须抖动：固定退避会让所有被限流的请求**在同一时刻**重试，
+                # 形成同步重试风暴（等于自我 DDoS），限流反而更难恢复。
+                # 为什么不用全抖动 random(0, base)：它可能取到接近 0 的值，
+                # 退避形同虚设；保留 base/2 的下限才真正拉开重试间隔。
+                wait = base / 2 + _random.uniform(0, base / 2)
                 # 退避会越过 deadline → 直接放弃，不在明知无用的等待上浪费墙钟
                 if deadline is not None and _time.time() + wait >= deadline:
                     last_error = f"{last_error} (deadline {deadline_sec:.0f}s)"

@@ -22,6 +22,11 @@
 - **大图分块转录**（`tools/multimodal.py`）：实测视觉模型对大图只"看到"一部分——`finish_reason=stop`、远未到 `max_tokens`（8000 也一样）就宣称「content cuts off here」（GAIA `9318445f` 的 1726×842 截图转录到中部即止）。**不是 token 上限，是模型的输入分辨率截断**。超过 `PEC_VISION_TILE_MAX_W/H`（默认 1400/1100px）时自动切成带 12% 重叠的分块逐块转录再合并，任一块解码失败即整体失败（宁缺毋假）。端到端实证：分块后左块转录显著变完整，但该网关对右侧分块仍解码失败，此题（gold 为 17 项分数列表）**仍未答对**——记为网关侧已知缺陷，诚实披露。
 - **排查工具坑（记录备忘）**：用 Python 标准库 `urllib` 直连该网关会稳定收到 **Cloudflare 1010（HTTP 403）**——是 UA 黑名单（`Python-urllib/*`）而非凭据问题，换浏览器 UA 或 `requests` / openai SDK 即恢复。用它做连通性诊断会误判「key 失效」。
 - **`call_llm` 缺少整体上界（上述 15 分钟挂起的根因）**：`get_llm()` 的 `timeout=60` 只约束**单次 HTTP 请求**，而一次 `llm.invoke()` 内部还有 openai SDK 自己的 `max_retries=2`（最多 3 次请求）⇒ 单次 invoke 最长 180s；外层再重试 3 次 + 8/16/32s 退避 ⇒ **最坏约 9 分钟且无整体上界**。新增 `LLM_CALL_DEADLINE` 后协程/同步路径均按墙钟收敛。⚠️ 它只能阻止「发起新尝试」，无法中断已飞行中的那次 —— 真正的硬边界仍由 `_run_with_deadline()` 提供，两者构成纵深防御。
+- **🔴 超长输入的保护形同虚设（可被单人触发的 DoS 面）**：`MAX_QUERY_CHARS` 默认 10000，而实测 10000 字符的 query 会完整跑一遍四角色图、**耗时 30028ms 并占满 worker**（`results/production_bench.json` 里 `long_query_10k` 早就记录了 `status_code=0, error=timed out`）。LLM 线程池只有 4 个（`scripts/api.py:101`）⇒ 4 个这样的请求即让服务无响应。更糟的是基准**只记录不断言**，CI 一直绿。修复：上限 10000 → 4000（同时改 `config.py` 默认值与 `experiments/config.yaml`，注意优先级为 env > YAML > 代码默认值）；基准用例从「硬编码 10000」改为「上限 + 1」并强制断言 413、纳入 M6 门禁。
+- **重试退避无抖动**：固定 8/16/32s 会让所有被限流的请求在同一时刻重试，形成同步重试风暴（自我 DDoS）。改为等额抖动 `base/2 + random(0, base/2)`，保留 base/2 下限以免退避退化到 0。
+- **🔴 mock 检索数据污染生产路径**：`tools/web_search.py` 原本**无条件**优先命中 31 个预置答案键，命中即返回 canned text，真实 API 根本不会被调用。这是为内置 33 题「开卷可复现」设计的评测工具，上了生产就是返回编造内容。现限定为**仅 eval 模式**生效；非 eval 模式下真实检索无结果时返回明确的「未检索到」，不再回落 mock。
+- **`/run_task` 默认超时 120s → 300s**：实测附件题端到端 248.7s（.docx）/ 260.4s（.pptx），120s 会把**刚修好的题系统性判超时**，把「能力不够」与「时间不够」混为一谈。
+- **测试标记静默失效**：`pytest.ini` 注册 `requires_api`，而 conftest 与实际用例用的是 `requires_api_key`；CI 过滤的是前者，两个标记的用例从未被真正排除（靠 conftest 自动 skip 兜住）。现 CI 同时排除两者，`pytest.ini` 标注 `requires_api` 为历史别名。
 
 ### Changed
 - `datasets/gaia_official_dataset.py` 抽出 `_ingest()`（字段归一化）与 `_load_local()`（本地镜像读取），在线与离线两条路径共用同一归一化逻辑，避免格式漂移。

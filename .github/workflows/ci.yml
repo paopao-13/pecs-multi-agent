@@ -55,4 +55,8 @@ jobs:
         # 测试已用 monkeypatch mock 掉 call_llm / execute_tool，无需 API Key 即可离线运行，
         # 不消耗任何 LLM 额度。与 benchmark job 互为补充：后者守服务层，本 job 守代码层。
         # 任一用例失败即退出码非 0 → PR 变红。
-        run: python -m pytest -m "not slow and not requires_api" --tb=short
+        #
+        # 标记说明：实际使用的是 requires_api_key（tests/conftest.py 注册，无 Key 时自动 skip），
+        # requires_api 是历史别名、无任何用例使用；这里两个都排除以免将来再出现
+        # "过滤了 A 名字、用例用的是 B 名字" 的静默失效。
+        run: python -m pytest -m "not slow and not requires_api and not requires_api_key" --tb=short

@@ -17,6 +17,8 @@ import urllib.request
 import urllib.parse
 import os
 
+from config import RUN_MODE
+
 # 可选的真实搜索 API（配置即启用，未配置则回退到 DuckDuckGo）
 # - PEC_SEARCH_PROVIDER: "tavily"（目前支持）或留空
 # - PEC_SEARCH_API_KEY:  对应 provider 的 API Key
@@ -44,12 +46,17 @@ def web_search(args: dict) -> str:
     if not query:
         return "错误：缺少 query 参数"
 
-    # 优先匹配 mock 数据（内置样例评测可复现性保证）
-    # 注意：mock 为内置样例【预置的标准答案键】（开卷），仅保证内置 33 题评测稳定可复现；
-    # 它测的是编排/计算能力，不代表真实检索。真实检索能力以 GAIA 官方 53 题（走 Tavily/DDG 真实 API）为准。
-    mock_result = _mock_search(query, num_results)
-    if not mock_result.startswith("[模拟搜索] 未找到"):
-        return mock_result
+    # mock 数据仅【eval 模式】下优先命中 —— 它保证内置 33 题样例可复现（开卷），
+    # 是评测工具而非检索能力。
+    #
+    # 为什么必须限定模式：mock 是 31 个预置的【标准答案键】，命中即返回 canned text。
+    # 在同一份代码上生产，真实用户/线上任务的查询一旦命中这些键，就会拿到编造内容
+    # 且调用方无从分辨 —— 这是数据污染，不是降级。故非 eval 模式一律走真实检索。
+    # 真实检索能力以 GAIA 官方 53 题（走 Tavily/DDG 真实 API）为准。
+    if RUN_MODE == "eval":
+        mock_result = _mock_search(query, num_results)
+        if not mock_result.startswith("[模拟搜索] 未找到"):
+            return mock_result
 
     # 配置了真实搜索 API（如 Tavily）时优先使用，获得更可靠的接地摘要
     if SEARCH_PROVIDER == "tavily" and SEARCH_API_KEY:
@@ -76,8 +83,13 @@ def web_search(args: dict) -> str:
     except Exception:
         pass
 
-    # 最后回退到 mock 数据
-    return mock_result
+    # 全部检索后端都无结果时的兜底：
+    #   eval 模式     → 回落到 mock，保证内置样例可复现（既有行为）
+    #   其他模式      → 明确返回"未检索到"，**绝不回落 mock**
+    #                   （mock 是预置的编造内容，返回它等于对调用方撒谎）
+    if RUN_MODE == "eval":
+        return _mock_search(query, num_results)
+    return f"[搜索无结果] 未检索到与“{query}”相关的内容（已尝试全部已配置的检索后端）。"
 
 
 def _tavily_search(query: str, num_results: int) -> str:

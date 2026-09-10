@@ -174,8 +174,19 @@ def _env_mapping(env_name: str, *yaml_keys, default=None) -> dict:
     return fallback if isinstance(fallback, dict) else (default or {})
 
 
-# 单条 query 最大字符数：超限直接拦截，不进入 LLM（对齐 benchmark_production 的 10K 超长用例）
-MAX_QUERY_CHARS = _env_number("MAX_QUERY_CHARS", "runtime", "max_query_chars", default=10000)
+# 单条 query 最大字符数：超限直接拦截，不进入 LLM。
+#
+# 默认值 10000 → 4000 的依据（2026-09-11 实测）：
+#   scripts/benchmark_production.py 用 10000 字符打 /run_task，实测耗时 30028ms 且
+#   客户端超时（status_code=0）。也就是说「合法但极长」的输入会完整跑一遍四角色图，
+#   单个请求即可占满 worker 30s+；LLM 线程池只有 4 个（scripts/api.py:101），
+#   4 个这样的请求就能让服务无响应 —— 这是可被单个用户触发的 DoS 面。
+#   4000 字符（约 1~2k token）足以覆盖真实任务，且仍可用 MAX_QUERY_CHARS 覆盖：
+#   需要喂长文本的场景请显式调大，而不是靠默认值兜底。
+#
+# 注意：本上限只作用于 HTTP 入口（scripts/api.py 的 _validate_query），
+# 评测链路（benchmarks/ 直接调 graph.builder.run_task）不受影响。
+MAX_QUERY_CHARS = _env_number("MAX_QUERY_CHARS", "runtime", "max_query_chars", default=4000)
 
 # 断点续跑 / 链路回放所用的 SQLite 检查点文件（绝对路径，避免受 cwd 影响）
 CHECKPOINT_DB = os.getenv(
