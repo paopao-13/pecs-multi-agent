@@ -11,6 +11,7 @@
 - **多模态后端实测打通（网关自带 vision 模型）**：`GET /models` 枚举到 4 个视觉模型（`glm-5.2/5.3-vision`、`deepseek-v4-flash/pro-vision`），与主 LLM 同 key 同端点，GAIA 的 2 道图片附件题由此具备作答条件（11 道附件题 = 2 图 + 2 音频 + 7 文档）。图片转录输出上限改为可配置 `PEC_VISION_MAX_TOKENS`（默认 1500 → **3000**：实测整页截图转录到 1500 就被截断，而题目要的数据常在页面更深处）。音频转写端点该网关不支持，2 道 mp3 题仍按降级跳过。
 - **评测单题硬超时 Windows 兜底**（`benchmarks/gaia_official.py:_run_with_deadline`）：守护线程 + `join(timeout)`，补上 Windows 缺失 `SIGALRM` 的盲区。
 - **LLM 调用整体墙钟上界** `LLM_CALL_DEADLINE`（`agents/llm_utils.py`，默认 120s，设 `0` 关闭）：约束**一次 `call_llm` 的全部重试总耗时**，到点后不再发起新尝试、且跳过会越界的退避等待。
+- **API Key 鉴权与租户隔离**（`scripts/auth.py`）：`PECS_API_KEYS="key1:tenant_a,key2:tenant_b"` 环境变量驱动，**未配置时鉴权自动关闭**（本地开发 / CI / 评测行为逐字不变）。`/run_task` 与 `/api/replay/{thread_id}` 接线：缺失或错误 Key → 401；跨租户访问 `thread_id` → **404 而非 403**（403 会确认资源存在，等于泄露 `thread_id` 的有效性）。归属靠 `thread_id` 命名约定 `<tenant>-<后缀>`，避免引入额外存储。
 
 ### Fixed
 - **门控数据集在受限网络下无法拉取**：定位并规避 `snapshot_download()` 整仓拉取的两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，跨域重定向**丢掉 `Authorization` 头**，门控文件必然 401；② 119 个文件逐个创建/删除 `.locks`/`*.incomplete`，累计删除次数触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。两者均在 `scripts/download_gaia.py` 与 `datasets/gaia_official_dataset.py` 的文档字符串中记录成因与规避方式。
@@ -27,6 +28,7 @@
 - **🔴 mock 检索数据污染生产路径**：`tools/web_search.py` 原本**无条件**优先命中 31 个预置答案键，命中即返回 canned text，真实 API 根本不会被调用。这是为内置 33 题「开卷可复现」设计的评测工具，上了生产就是返回编造内容。现限定为**仅 eval 模式**生效；非 eval 模式下真实检索无结果时返回明确的「未检索到」，不再回落 mock。
 - **`/run_task` 默认超时 120s → 300s**：实测附件题端到端 248.7s（.docx）/ 260.4s（.pptx），120s 会把**刚修好的题系统性判超时**，把「能力不够」与「时间不够」混为一谈。
 - **测试标记静默失效**：`pytest.ini` 注册 `requires_api`，而 conftest 与实际用例用的是 `requires_api_key`；CI 过滤的是前者，两个标记的用例从未被真正排除（靠 conftest 自动 skip 兜住）。现 CI 同时排除两者，`pytest.ini` 标注 `requires_api` 为历史别名。
+- **🔴 SSRF / egress 无管控**（`tools/api_caller.py`）：URL 由 LLM 生成属不可信输入，原实现直接 `urlopen(任意 url)`，可被提示注入诱导访问云元数据（`169.254.169.254`）、内网服务或 `file://` 本地文件。新增四层防护：协议白名单（仅 http/https）、目标 IP 禁私有/回环/链路本地/保留/多播/未指定（含域名解析后的**全部** IP）、禁止重定向（否则 302 可绕过 IP 校验）、响应体上限 2MB（`PEC_EGRESS_MAX_BYTES`，超限截断并标注）。解析异常一律 fail-closed；`PEC_EGRESS_ALLOW_PRIVATE=1` 供本地开发豁免。**已知边界**：无法完全防御 DNS rebinding（校验与请求间存在 TOCTOU 窗口），已在 docstring 注明。
 
 ### Changed
 - `datasets/gaia_official_dataset.py` 抽出 `_ingest()`（字段归一化）与 `_load_local()`（本地镜像读取），在线与离线两条路径共用同一归一化逻辑，避免格式漂移。

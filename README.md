@@ -447,6 +447,7 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `PEC_SEARCH_PROVIDER` | 否 | 空 | 真实搜索 API 提供商，目前支持 `tavily`；配置后 Web 检索改用其接地摘要 |
 | `PEC_SEARCH_API_KEY` | 否 | 空 | 对应搜索 API Key |
 | `RUN_MODE` | 否 | `eval` | 运行模式：`eval` 关闭工具加固（行为等同改造前）/ `business` 全部开启 |
+| `PECS_API_KEYS` | 否 | 空 | **API 鉴权**，`"key1:tenant_a,key2:tenant_b"` 格式；**未配置时鉴权自动关闭**（本地开发/CI/评测不受影响）。开启后 `/run_task` 与 `/api/replay/{id}` 需带 `X-API-Key` 头 |
 | `MAX_QUERY_CHARS` | 否 | 10000 | 单条 query 字符上限，超限直接 413 拦截、不进入 LLM |
 | `PEC_CHECKPOINT_DB` | 否 | `results/checkpoints.sqlite` | 断点续跑 / 链路回放所用的 SQLite 检查点文件 |
 | `PEC_SKIP_LLM_PROBE` | 否 | 空 | 置 `1` 跳过启动期的 LLM 真实探测（离线 / 测试环境）；跳过时退回「key 非空即就绪」|
