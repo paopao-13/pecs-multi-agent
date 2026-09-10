@@ -307,3 +307,39 @@ def resume_task(thread_id: str, checkpoint_db: str) -> dict:
         # 续跑时无需初始输入，LangGraph 会从最后一个检查点恢复
         final_state = compiled_graph.invoke(None, {"configurable": {"thread_id": thread_id}})
     return final_state
+
+
+def load_task_state(thread_id: str, checkpoint_db: str) -> dict:
+    """
+    读取某个 thread_id 的最后一个检查点状态 —— **不重跑图**。
+
+    用于链路回放：把已经持久化的任务状态取出来，交给 GraphTraceLogger /
+    成本归因去展示，而不是重新执行一遍（重跑既费钱又可能有副作用）。
+
+    参数:
+        thread_id: 任务的线程 ID
+        checkpoint_db: SQLite 检查点文件路径
+
+    返回:
+        状态的 dict（query / plan / results / final_answer / token_used 等）；
+        找不到该 thread_id 时返回空 dict（不抛异常，交由调用方判定 404）。
+    """
+    try:
+        with SqliteSaver.from_conn_string(checkpoint_db) as saver:
+            compiled_graph = build_graph(checkpointer=saver)
+            snapshot = compiled_graph.get_state({"configurable": {"thread_id": thread_id}})
+    except Exception:
+        # 空库 / 表不存在 / 文件损坏等：一律按「查无此任务」处理
+        return {}
+
+    if snapshot is None:
+        return {}
+    values = getattr(snapshot, "values", None)
+    if not values:
+        return {}
+    if hasattr(values, "model_dump"):
+        return values.model_dump()
+    try:
+        return dict(values)
+    except (TypeError, ValueError):
+        return {}

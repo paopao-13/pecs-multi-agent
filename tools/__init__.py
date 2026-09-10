@@ -13,7 +13,7 @@ from tools.api_caller import api_caller
 from tools.webshop import webshop_select
 from tools.multimodal import multimodal_process
 
-from config import TOOL_WRAPPER_ENABLED
+from config import TOOL_WRAPPER_ENABLED, RUN_MODE
 from tools.wrapper import invoke_tool
 
 # 工具注册表：action名称 → 工具函数
@@ -39,6 +39,16 @@ TOOL_DESCRIPTIONS = {
     "api_call": "通用API调用工具。输入URL和参数，返回响应内容。适用于调用外部API获取数据。",
     "webshop": "WebShop商品选择工具。输入购物需求和可选商品目录，返回最匹配商品。适用于购物导航任务。",
 }
+
+# 【约束 K4】内容生成 Pipeline 工具仅在 RUN_MODE=business 时注册，
+# 保证 eval 模式（GAIA / WebShop 评测）的可用工具集与改造前完全一致。
+if RUN_MODE == "business":
+    from tools.content_pipeline import (  # noqa: E402 - 需在注册表定义后就地合并
+        CONTENT_PIPELINE_DESCRIPTIONS,
+        CONTENT_PIPELINE_TOOLS,
+    )
+    TOOL_REGISTRY.update(CONTENT_PIPELINE_TOOLS)
+    TOOL_DESCRIPTIONS.update(CONTENT_PIPELINE_DESCRIPTIONS)
 
 
 # 工具执行结果中的错误标记前缀（用于判定执行成功/失败）

@@ -166,6 +166,14 @@ class GraphTraceLogger:
 
         return ""
 
+    def build_trace(self, state: dict) -> str:
+        """构建完整链路的 Markdown 文本（不落盘）。
+
+        供 HTTP 回放接口等需要「直接拿内容」的场景使用，内容与
+        export_trace_to_markdown 写出的文件完全一致。
+        """
+        return self._build_markdown(state)
+
     def export_trace_to_markdown(self, state: dict, output_path: str = None) -> str:
         """
         导出完整链路日志为 Markdown 文件

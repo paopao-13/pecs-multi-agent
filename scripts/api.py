@@ -67,7 +67,13 @@ _ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _ROOT)
 sys.path.insert(0, os.path.dirname(_ROOT))
 
-from config import DEFAULT_TOKEN_BUDGET, LLM_API_KEY, MAX_QUERY_CHARS, RUN_MODE  # noqa: E402
+from config import (  # noqa: E402
+    CHECKPOINT_DB,
+    DEFAULT_TOKEN_BUDGET,
+    LLM_API_KEY,
+    MAX_QUERY_CHARS,
+    RUN_MODE,
+)
 
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起
 RUN_TASK_TIMEOUT_S = float(os.getenv("PEC_RUN_TASK_TIMEOUT", "120"))
@@ -352,14 +358,30 @@ app = FastAPI(title="PECS Multi-Agent API", version="0.6.0", lifespan=lifespan)
 
 
 # ---------- 同步执行体（在线程池中跑，避免阻塞事件循环）----------
-def _execute_graph(query: str, token_budget: int) -> Dict[str, Any]:
-    """在 worker 线程中运行四角色图（同步阻塞调用）。"""
+def _execute_graph(query: str, token_budget: int, thread_id: Optional[str] = None) -> Dict[str, Any]:
+    """在 worker 线程中运行四角色图（同步阻塞调用）。
+
+    传入 thread_id 时启用 SQLite 检查点持久化（复用 graph/builder 的既有能力），
+    使该任务可被 /api/replay/{thread_id} 回放或断点续跑；不传则与改造前一致。
+    """
     from graph.builder import build_graph, create_initial_state  # 延迟导入
     from metrics.cost_attribution import attribute_cost  # 延迟导入
 
-    compiled_graph = build_graph(token_budget)
     initial_state = create_initial_state(query, token_budget)
-    final_state = compiled_graph.invoke(initial_state)
+
+    if thread_id:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+
+        os.makedirs(os.path.dirname(CHECKPOINT_DB), exist_ok=True)
+        with SqliteSaver.from_conn_string(CHECKPOINT_DB) as saver:
+            compiled_graph = build_graph(token_budget, checkpointer=saver)
+            final_state = compiled_graph.invoke(
+                initial_state, {"configurable": {"thread_id": thread_id}}
+            )
+    else:
+        compiled_graph = build_graph(token_budget)
+        final_state = compiled_graph.invoke(initial_state)
+
     return {
         "final_answer": final_state.get("final_answer", ""),
         "token_used": final_state.get("token_used", 0),
@@ -373,6 +395,8 @@ def _execute_graph(query: str, token_budget: int) -> Dict[str, Any]:
 class RunTaskRequest(BaseModel):
     query: str
     token_budget: Optional[int] = DEFAULT_TOKEN_BUDGET
+    # 可选：传入则持久化到 SQLite 检查点，之后可用 /api/replay/{thread_id} 回放
+    thread_id: Optional[str] = None
 
 
 class RunTaskResponse(BaseModel):
@@ -478,7 +502,9 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
     try:
         # 在独立 LLM 线程池中执行同步图调用，释放事件循环且不与默认池争用
         result = await asyncio.wait_for(
-            loop.run_in_executor(_LLM_EXECUTOR, _execute_graph, req.query, req.token_budget),
+            loop.run_in_executor(
+                _LLM_EXECUTOR, _execute_graph, req.query, req.token_budget, req.thread_id
+            ),
             timeout=RUN_TASK_TIMEOUT_S,
         )
         latency = (time.time() - t0) * 1000.0
@@ -500,6 +526,46 @@ async def run_task(req: RunTaskRequest) -> RunTaskResponse:
         latency = (time.time() - t0) * 1000.0
         _record("run_task", latency, error=True)
         return RunTaskResponse(success=False, query=req.query, error=str(exc))
+
+
+# ---------- 链路回放（复用已持久化的检查点，不重跑图）----------
+@app.get("/api/replay/{thread_id}", dependencies=[_rate_limit_dep("replay")])
+async def replay(thread_id: str) -> Dict[str, Any]:
+    """回放某个 thread_id 的完整执行链路。
+
+    数据来源全部是既有资产：SQLite 检查点（graph/builder）+ GraphTraceLogger
+    + 成本归因，本端点只做「读取并暴露」，不重新执行任务（避免二次计费与副作用）。
+    """
+    from graph.builder import load_task_state
+    from logger.graph_trace_logger import GraphTraceLogger
+    from metrics.cost_attribution import attribute_cost
+
+    if not os.path.exists(CHECKPOINT_DB):
+        raise HTTPException(
+            status_code=404,
+            detail="暂无检查点文件：需在调用 /run_task 时传入 thread_id 才会持久化",
+        )
+
+    state = load_task_state(thread_id, CHECKPOINT_DB)
+    if not state:
+        raise HTTPException(status_code=404, detail=f"未找到 thread_id={thread_id} 的检查点")
+
+    return {
+        "thread_id": thread_id,
+        "state": {
+            "query": state.get("query", ""),
+            "final_answer": state.get("final_answer", ""),
+            "token_used": state.get("token_used", 0),
+            "token_budget": state.get("token_budget", 0),
+            "step_count": state.get("step_count", 0),
+            "iterations": state.get("iteration", 0),
+            "plan": state.get("plan", []),
+            "results": state.get("results", []),
+            "critic_scores": state.get("critic_scores", []),
+        },
+        "cost_report": attribute_cost(state),
+        "trace_markdown": GraphTraceLogger(verbose=False).build_trace(state),
+    }
 
 
 # ---------- #7 故障注入 / 混沌管理端点 ----------
