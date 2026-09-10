@@ -37,6 +37,7 @@ YAML 配置与代码参数映射关系：
   tools.permission.enabled      → TOOL_PERMISSION_ENABLED
   tools.permission.map          → TOOL_PERMISSION_MAP
 """
+import json
 import os
 from pathlib import Path
 from typing import Optional
@@ -154,6 +155,25 @@ def _env_number(env_name: str, *yaml_keys, default):
     return _yaml_get(*yaml_keys, default=default)
 
 
+def _env_mapping(env_name: str, *yaml_keys, default=None) -> dict:
+    """读取映射型配置：环境变量（JSON 字符串）优先，其次 YAML，最后代码默认值。
+
+    环境变量写法示例：
+      TOOL_PERMISSION_MAP='{"executor_node": ["search", "python"]}'
+    解析失败或类型不是对象时，静默回退到 YAML / 默认值（不因配置写错而中断启动）。
+    """
+    raw = os.getenv(env_name)
+    if raw:
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, dict):
+                return parsed
+        except (TypeError, ValueError):
+            pass
+    fallback = _yaml_get(*yaml_keys, default=default)
+    return fallback if isinstance(fallback, dict) else (default or {})
+
+
 # 单条 query 最大字符数：超限直接拦截，不进入 LLM（对齐 benchmark_production 的 10K 超长用例）
 MAX_QUERY_CHARS = _env_number("MAX_QUERY_CHARS", "runtime", "max_query_chars", default=10000)
 
@@ -195,7 +215,7 @@ TOOL_IDEMPOTENT_ENABLED = _env_flag(
 TOOL_PERMISSION_ENABLED = _env_flag(
     "TOOL_PERMISSION_ENABLED", "tools", "permission", "enabled", default=False, business_default=True
 )
-TOOL_PERMISSION_MAP = _yaml_get("tools", "permission", "map", default={}) or {}
+TOOL_PERMISSION_MAP = _env_mapping("TOOL_PERMISSION_MAP", "tools", "permission", "map", default={})
 
 # ============ Flask 配置 ============
 FLASK_HOST = os.getenv("FLASK_HOST", "127.0.0.1")

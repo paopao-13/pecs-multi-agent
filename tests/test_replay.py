@@ -11,6 +11,7 @@
 graph.builder.load_task_state —— 两者共用 AgentState，通道对齐。
 """
 import json
+import os
 import sqlite3
 
 import pytest
@@ -44,6 +45,26 @@ def _empty_db(path: str) -> str:
     """建一个合法的空 SQLite 库（用于「有库但无该 thread」的场景）。"""
     sqlite3.connect(path).close()
     return path
+
+
+# ============================================================
+# 0. 检查点目录处理（边界：裸文件名）
+# ============================================================
+
+class TestEnsureDbDir:
+    def test_bare_filename_does_not_raise(self):
+        """PEC_CHECKPOINT_DB=cp.sqlite 时 dirname 为空串，不能因此抛 FileNotFoundError"""
+        api._ensure_db_dir("cp.sqlite")  # 不应抛异常
+
+    def test_nested_path_is_created(self, tmp_path):
+        target = tmp_path / "sub" / "deeper" / "cp.sqlite"
+        api._ensure_db_dir(str(target))
+        assert target.parent.is_dir()
+
+    def test_existing_dir_is_idempotent(self, tmp_path):
+        api._ensure_db_dir(str(tmp_path / "cp.sqlite"))
+        api._ensure_db_dir(str(tmp_path / "cp.sqlite"))
+        assert tmp_path.is_dir()
 
 
 # ============================================================
