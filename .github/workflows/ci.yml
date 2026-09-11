@@ -60,3 +60,10 @@ jobs:
         # requires_api 是历史别名、无任何用例使用；这里两个都排除以免将来再出现
         # "过滤了 A 名字、用例用的是 B 名字" 的静默失效。
         run: python -m pytest -m "not slow and not requires_api and not requires_api_key" --tb=short
+
+      - name: Run capability eval (ci tier, zero LLM cost)
+        # 只跑"不进 LLM 就能判定"的断言（空输入 400 / 超长 413 / 缺字段 422 / 未授权 401），
+        # 零 LLM 消耗，所以可以每次提交都跑。语义质量与对抗用例在 nightly 档，按需执行：
+        #   python evals/run_eval.py --mode nightly [--limit N]
+        # 失败即退出码 1 → PR 变红（对抗与安全类断言零容忍）。
+        run: python evals/run_eval.py --mode ci

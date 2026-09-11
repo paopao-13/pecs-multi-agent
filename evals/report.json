@@ -1,0 +1,70 @@
+{
+  "mode": "ci",
+  "total": 6,
+  "l1_pass_rate": 1.0,
+  "pass_line": 1.0,
+  "by_category": {
+    "normal": {
+      "total": 0,
+      "passed": 0
+    },
+    "boundary": {
+      "total": 5,
+      "passed": 5
+    },
+    "adversarial": {
+      "total": 1,
+      "passed": 1
+    }
+  },
+  "results": [
+    {
+      "id": "B01",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 400,
+      "steps": 0
+    },
+    {
+      "id": "B02",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 400,
+      "steps": 0
+    },
+    {
+      "id": "B03",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 413,
+      "steps": 0
+    },
+    {
+      "id": "B04",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 422,
+      "steps": 0
+    },
+    {
+      "id": "B05",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 503,
+      "steps": 0
+    },
+    {
+      "id": "A01",
+      "category": "adversarial",
+      "passed": true,
+      "failures": [],
+      "status": 401,
+      "steps": 0
+    }
+  ]
+}

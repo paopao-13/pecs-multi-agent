@@ -1,0 +1,30 @@
+{
+  "mode": "nightly",
+  "total": 1,
+  "l1_pass_rate": 1.0,
+  "pass_line": 0.95,
+  "by_category": {
+    "normal": {
+      "total": 1,
+      "passed": 1
+    },
+    "boundary": {
+      "total": 0,
+      "passed": 0
+    },
+    "adversarial": {
+      "total": 0,
+      "passed": 0
+    }
+  },
+  "results": [
+    {
+      "id": "N01",
+      "category": "normal",
+      "passed": true,
+      "failures": [],
+      "status": 200,
+      "steps": 1
+    }
+  ]
+}
