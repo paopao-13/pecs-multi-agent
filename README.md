@@ -425,9 +425,15 @@ python scripts/app.py
 生产环境（多 worker + 指标正确聚合）：
 ```bash
 export PROMETHEUS_MULTIPROC_DIR=/tmp/pecs_prom && mkdir -p $PROMETHEUS_MULTIPROC_DIR
-gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTIPROC_DIR
-# 外部 Prometheus 直接 scrape http://host:5000/metrics/prom
+gunicorn scripts.api:app -w 4 -b 0.0.0.0:8000 --timeout 300 --prometheus-dir $PROMETHEUS_MULTIPROC_DIR
+# 外部 Prometheus 直接 scrape http://host:8000/metrics/prom
 # 提示：未设 PROMETHEUS_MULTIPROC_DIR 时，/metrics（JSON）只反映单 worker，多 worker 请以 /metrics/prom 为准
+#
+# 两个必须注意的参数：
+#   --timeout 300 ：附件类任务实测 248~260s，沿用默认 120s 会系统性误杀
+#   多 worker 限流：进程内令牌桶各 worker 各算一份，额度会被放大 N 倍。
+#                   设 PEC_SHARED_STATE_DB=/path/state.sqlite 后计数落到 SQLite，
+#                   多进程共享（实测 4 进程 240 次请求放行 100 次，进程内为 400 次）
 ```
 
 ## 配置
@@ -448,6 +454,8 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:5000 --prometheus-dir $PROMETHEUS_MULTI
 | `PEC_SEARCH_API_KEY` | 否 | 空 | 对应搜索 API Key |
 | `RUN_MODE` | 否 | `eval` | 运行模式：`eval` 关闭工具加固（行为等同改造前）/ `business` 全部开启 |
 | `PECS_API_KEYS` | 否 | 空 | **API 鉴权**，`"key1:tenant_a,key2:tenant_b"` 格式；**未配置时鉴权自动关闭**（本地开发/CI/评测不受影响）。开启后 `/run_task` 与 `/api/replay/{id}` 需带 `X-API-Key` 头 |
+| `PEC_SHARED_STATE_DB` | 否 | 空 | 跨进程共享的限流状态（SQLite 路径）。**多 worker 部署时必填**——未设置时限流是进程内令牌桶，额度会被放大 N 倍 |
+| `PEC_EGRESS_ALLOW_PRIVATE` | 否 | 空 | 置 `1` 允许 `api_call` 访问内网地址（仅本地开发，生产勿开） |
 | `MAX_QUERY_CHARS` | 否 | 10000 | 单条 query 字符上限，超限直接 413 拦截、不进入 LLM |
 | `PEC_CHECKPOINT_DB` | 否 | `results/checkpoints.sqlite` | 断点续跑 / 链路回放所用的 SQLite 检查点文件 |
 | `PEC_SKIP_LLM_PROBE` | 否 | 空 | 置 `1` 跳过启动期的 LLM 真实探测（离线 / 测试环境）；跳过时退回「key 非空即就绪」|

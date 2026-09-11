@@ -210,6 +210,20 @@ class _TokenBucket:
 
 _RATE_BUCKETS: Dict[str, _TokenBucket] = {}
 
+# 跨进程共享的限流状态（可选）：PEC_SHARED_STATE_DB 指向一个 SQLite 文件时启用，
+# 让多 worker 部署共享同一份令牌桶。未设置时行为与改造前完全一致（进程内令牌桶）。
+# 详见 tools/rate_store.py —— 那里说明了为什么不用 Redis（无环境）与何时该换。
+_SHARED_STATE_DB = os.getenv("PEC_SHARED_STATE_DB", "")
+_STATE_STORE = None
+if _SHARED_STATE_DB:
+    try:
+        from tools.rate_store import StateStore
+
+        _STATE_STORE = StateStore(_SHARED_STATE_DB)
+    except Exception as exc:  # 导入或建库失败不应阻断启动（限流非核心路径）
+        print(f"[启动] 共享限流状态初始化失败，回退到进程内令牌桶：{exc}")
+        _STATE_STORE = None
+
 
 def _get_bucket(endpoint: str) -> Optional[_TokenBucket]:
     if not _RATE_LIMIT_ENABLED:
@@ -223,6 +237,22 @@ def _get_bucket(endpoint: str) -> Optional[_TokenBucket]:
 
 def _rate_limit_check(endpoint: str) -> None:
     """实际限流逻辑（同步依赖）：超限抛 429。"""
+    # 共享状态模式（PEC_SHARED_STATE_DB 指定 SQLite 路径）：计数落在库里，
+    # 多 worker / 多进程下全局生效。默认不启用 —— 单进程 uvicorn 用进程内令牌桶
+    # 就够，启用它会给每个请求多一次写事务（实测 p99 0.67ms，见 tools/rate_store.py）。
+    if _STATE_STORE is not None:
+        if not _STATE_STORE.consume(endpoint, _RATE_LIMIT_RPS, _RATE_LIMIT_BURST):
+            if _PROM_AVAILABLE:
+                RATE_LIMITED.labels(endpoint=endpoint).inc()
+            with _lock:
+                _metrics.setdefault("rate_limited", {}).setdefault(endpoint, 0)
+                _metrics["rate_limited"][endpoint] += 1
+            raise HTTPException(
+                status_code=429,
+                detail=f"请求过于频繁（限流 {_RATE_LIMIT_RPS:g}/s，突发 {_RATE_LIMIT_BURST:g}）",
+            )
+        return
+
     bucket = _get_bucket(endpoint)
     if bucket is None:
         return
@@ -547,6 +577,8 @@ async def health() -> Dict[str, Any]:
         "llm_reason": _STARTUP["llm_reason"],
         # 当前运行模式（eval / business）：business 会打开工具加固
         "run_mode": RUN_MODE,
+        # 限流状态是否跨进程共享（多 worker 下生效的前提）
+        "shared_state": bool(_STATE_STORE),
         "ready": True,
     }
     _record("health", (time.time() - t0) * 1000.0)

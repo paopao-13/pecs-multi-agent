@@ -1,0 +1,40 @@
+# 排除体积巨大且与运行无关的目录：
+#   webshop/ 是克隆的第三方仓库（约 2.5M 行），data/ 是本地数据集镜像，
+#   results/ 是运行产物 —— 都会被 Dockerfile 的 `COPY . .` 打进镜像。
+.git
+.github
+.venv-webshop/
+webshop/
+.workbuddy/
+data/
+results/
+docs/
+demos/
+examples/
+templates/
+ablation_configs/
+cases/
+assets/
+
+# Python 缓存与虚拟环境
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 测试与工具缓存
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# 本地运行产物
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.log
+
+# 凭据（即使被 .gitignore 忽略，也绝不能进镜像层）
+.env
+.env.*

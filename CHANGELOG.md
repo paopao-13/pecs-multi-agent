@@ -11,6 +11,7 @@
 - **多模态后端实测打通（网关自带 vision 模型）**：`GET /models` 枚举到 4 个视觉模型（`glm-5.2/5.3-vision`、`deepseek-v4-flash/pro-vision`），与主 LLM 同 key 同端点，GAIA 的 2 道图片附件题由此具备作答条件（11 道附件题 = 2 图 + 2 音频 + 7 文档）。图片转录输出上限改为可配置 `PEC_VISION_MAX_TOKENS`（默认 1500 → **3000**：实测整页截图转录到 1500 就被截断，而题目要的数据常在页面更深处）。音频转写端点该网关不支持，2 道 mp3 题仍按降级跳过。
 - **评测单题硬超时 Windows 兜底**（`benchmarks/gaia_official.py:_run_with_deadline`）：守护线程 + `join(timeout)`，补上 Windows 缺失 `SIGALRM` 的盲区。
 - **LLM 调用整体墙钟上界** `LLM_CALL_DEADLINE`（`agents/llm_utils.py`，默认 120s，设 `0` 关闭）：约束**一次 `call_llm` 的全部重试总耗时**，到点后不再发起新尝试、且跳过会越界的退避等待。
+- **跨进程共享状态存储**（`tools/rate_store.py`，可选启用）：限流/熔断/幂等原本是进程内 dict，多 worker 下各算一份、额度被放大 N 倍。现提供 `StateStore`（**标准库 `sqlite3`，零新增依赖**）：令牌桶用 `BEGIN IMMEDIATE` 保证读-改-写原子，WAL + `synchronous=NORMAL`，`timeout=5.0` 绝不无限阻塞，DB 异常 **fail-open**（限流组件不能成为新的故障源）。经 `PEC_SHARED_STATE_DB` 启用，**未设置时行为与改造前完全一致**。实测：4 进程 × 60 次请求、burst=100 → 全局放行恰好 100（进程内方案为 400），单次判断 p99 **0.67ms**。
 - **API Key 鉴权与租户隔离**（`scripts/auth.py`）：`PECS_API_KEYS="key1:tenant_a,key2:tenant_b"` 环境变量驱动，**未配置时鉴权自动关闭**（本地开发 / CI / 评测行为逐字不变）。`/run_task` 与 `/api/replay/{thread_id}` 接线：缺失或错误 Key → 401；跨租户访问 `thread_id` → **404 而非 403**（403 会确认资源存在，等于泄露 `thread_id` 的有效性）。归属靠 `thread_id` 命名约定 `<tenant>-<后缀>`，避免引入额外存储。
 
 ### Fixed
@@ -28,6 +29,8 @@
 - **🔴 mock 检索数据污染生产路径**：`tools/web_search.py` 原本**无条件**优先命中 31 个预置答案键，命中即返回 canned text，真实 API 根本不会被调用。这是为内置 33 题「开卷可复现」设计的评测工具，上了生产就是返回编造内容。现限定为**仅 eval 模式**生效；非 eval 模式下真实检索无结果时返回明确的「未检索到」，不再回落 mock。
 - **`/run_task` 默认超时 120s → 300s**：实测附件题端到端 248.7s（.docx）/ 260.4s（.pptx），120s 会把**刚修好的题系统性判超时**，把「能力不够」与「时间不够」混为一谈。
 - **测试标记静默失效**：`pytest.ini` 注册 `requires_api`，而 conftest 与实际用例用的是 `requires_api_key`；CI 过滤的是前者，两个标记的用例从未被真正排除（靠 conftest 自动 skip 兜住）。现 CI 同时排除两者，`pytest.ini` 标注 `requires_api` 为历史别名。
+- **🔴 部署件与真实服务完全脱节**：`Dockerfile` 指向 Flask 演示应用（`app:app` / 5000 端口 / 健康检查打 `/api/gaia_samples`），而生产服务是 `scripts/api.py` 的 FastAPI（8000 端口）——容器能起来但**健康检查必失败**，等于部署件一直是坏的。现全面对齐：Python 3.11-slim（与 CI 一致）、装 `requirements-lock.txt`、EXPOSE 8000、HEALTHCHECK 打 `/health`（该端点始终 200 并用 `llm_configured` 单独暴露依赖状态，探针不会被依赖故障误杀）、CMD 用 uvicorn。另加 `.dockerignore` 排除 `webshop/`（约 2.5M 行）、`data/`、`results/`、`.env`。
+- **🔴 服务依赖从未真正锁定**：`requirements-lock.txt` **其实是 WebShop 虚拟环境的 freeze**（含 `ale-py`/`AutoROM`/`crafter` 等 Gym·RL 包），而 `requirements.txt` 全为 `>=` 下界 —— "依赖已锁定"是假象，构建不可复现。现原文件改名 `requirements-webshop-lock.txt` 并加说明，新建真正的服务 lock（`pip freeze`，157 行）。
 - **🔴 SSRF / egress 无管控**（`tools/api_caller.py`）：URL 由 LLM 生成属不可信输入，原实现直接 `urlopen(任意 url)`，可被提示注入诱导访问云元数据（`169.254.169.254`）、内网服务或 `file://` 本地文件。新增四层防护：协议白名单（仅 http/https）、目标 IP 禁私有/回环/链路本地/保留/多播/未指定（含域名解析后的**全部** IP）、禁止重定向（否则 302 可绕过 IP 校验）、响应体上限 2MB（`PEC_EGRESS_MAX_BYTES`，超限截断并标注）。解析异常一律 fail-closed；`PEC_EGRESS_ALLOW_PRIVATE=1` 供本地开发豁免。**已知边界**：无法完全防御 DNS rebinding（校验与请求间存在 TOCTOU 窗口），已在 docstring 注明。
 
 ### Changed
