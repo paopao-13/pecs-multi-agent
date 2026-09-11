@@ -1,6 +1,6 @@
 {
   "mode": "ci",
-  "total": 19,
+  "total": 22,
   "l1_pass_rate": 1.0,
   "pass_line": 1.0,
   "by_category": {
@@ -9,8 +9,8 @@
       "passed": 0
     },
     "boundary": {
-      "total": 14,
-      "passed": 14
+      "total": 17,
+      "passed": 17
     },
     "adversarial": {
       "total": 5,
@@ -168,6 +168,30 @@
       "passed": true,
       "failures": [],
       "status": 404,
+      "steps": 0
+    },
+    {
+      "id": "B25",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 422,
+      "steps": 0
+    },
+    {
+      "id": "B26",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 422,
+      "steps": 0
+    },
+    {
+      "id": "B27",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 422,
       "steps": 0
     }
   ]

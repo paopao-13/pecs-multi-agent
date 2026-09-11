@@ -110,6 +110,9 @@ def run_ci_case(case: dict) -> dict:
     # 归属校验用例：请求体携带 thread_id（同租户放行 / 跨租户 404）
     if case.get("thread_id"):
         body["thread_id"] = case["thread_id"]
+    # 参数边界用例：token_budget 非法值应被 pydantic 拦成 422
+    if case.get("token_budget") is not None:
+        body["token_budget"] = case["token_budget"]
 
     # 鉴权断言的三种凭据形态：无 Key / 错误 Key（bad_key）/ 有效 Key
     if case.get("skip_auth"):

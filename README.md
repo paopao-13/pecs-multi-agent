@@ -619,6 +619,23 @@ curl localhost:8000/api/replay/demo-1
 # → {thread_id, state{...}, cost_report{...}, trace_markdown}
 ```
 
+**链路追踪（trace_id）**：每个请求由中间件生成 `trace_id`，回写到响应头
+`X-Trace-Id` 与 `/run_task` 响应体 `trace_id` 字段；整条链路的工具调用日志、
+链路 Markdown 都带同一个 id，可从日志反查全链路。
+
+```bash
+# 上游系统串联：传入合法 X-Trace-Id 即被复用（非法值会被拒绝并重新生成，防日志注入）
+curl -X POST localhost:8000/run_task \
+  -H 'Content-Type: application/json' \
+  -H 'X-Trace-Id: upstream-request-9527' \
+  -d '{"query": "计算2的100次方"}'
+# 响应头：X-Trace-Id: upstream-request-9527
+```
+
+> 实现要点：`run_in_executor` **不会**把 `contextvars` 传播到工作线程，
+> 因此图执行入口（`_execute_graph`）必须重新 `bind_trace_id`，
+> 否则链路日志里全是占位符 `-`。`logger/trace_context.py` 封装了这部分语义。
+
 ### 自定义Critic开发
 
 ```bash

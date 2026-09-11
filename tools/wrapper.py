@@ -355,13 +355,20 @@ def log_tool_call(
 ) -> None:
     """输出一条结构化工具调用日志。
 
-    字段固定：thread_id / node / tool / duration_ms / ok / error_type / args_digest，
-    便于事后按 thread_id 串起一条完整链路。extra 用于附加旁路信息
-    （如 cached / throttled），不改变固定字段。
+    字段固定：trace_id / thread_id / node / tool / duration_ms / ok /
+    error_type / args_digest，便于事后按 trace_id 或 thread_id 串起一条
+    完整链路。extra 用于附加旁路信息（如 cached / throttled），
+    不改变固定字段。
+
+    trace_id 从 logger.trace_context 的上下文读取：未绑定时为占位符 "-"。
+    线程池场景由调用方（scripts/api.py）在工作线程入口绑定。
     """
+    from logger.trace_context import get_trace_id
+
     ctx = context or {}
     record: Dict[str, Any] = {
         "event": "tool_call",
+        "trace_id": get_trace_id(),
         "tool": action,
         "thread_id": ctx.get("thread_id", "-"),
         "node": ctx.get("node_name", "-"),

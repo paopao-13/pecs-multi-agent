@@ -62,6 +62,7 @@ v0.6.1 改动（依赖故障显式化，消除静默失败）：
 """
 
 import os
+import re
 import sys
 import time
 from functools import partial
@@ -72,7 +73,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # 确保项目根目录在 Python 路径中（与 scripts/app.py 保持一致）
 _ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -478,7 +479,44 @@ async def lifespan(app: FastAPI):
     _cleanup_prometheus()
 
 
+# trace_id 白名单：UUID/字母数字/短横线下划线，且长度在中间件里限 64。
+# 目的是挡住换行符与 ANSI 转义序列——日志注入会让审计日志失去可信度。
+_TRACE_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
 app = FastAPI(title="PECS Multi-Agent API", version="0.6.1", lifespan=lifespan)
+
+
+@app.middleware("http")
+async def _trace_middleware(request, call_next):
+    """为每个请求绑定 trace_id，并回写到响应头 X-Trace-Id。
+
+    为什么放中间件而不是端点里：所有端点（含 /health、/metrics）都该有
+    trace_id，逐个端点写会漏；中间件是唯一不会漏的位置。
+
+    上游串联：请求带 X-Trace-Id 时复用该值（便于上游系统串起跨服务链路），
+    但做长度与字符白名单校验——外部输入不可信，直接透传等于给日志注入
+    换行符的机会（日志伪造）。
+    """
+    from logger.trace_context import (
+        PLACEHOLDER,
+        new_trace_id,
+        reset_trace_id,
+        set_trace_id,
+    )
+
+    incoming = request.headers.get("X-Trace-Id", "")
+    if incoming and len(incoming) <= 64 and _TRACE_ID_RE.match(incoming):
+        trace_id = incoming
+    else:
+        trace_id = new_trace_id()
+
+    token = set_trace_id(trace_id)
+    try:
+        response = await call_next(request)
+    finally:
+        reset_trace_id(token)
+    response.headers["X-Trace-Id"] = trace_id
+    return response
 
 
 def _ensure_db_dir(db_path: str) -> None:
@@ -493,12 +531,30 @@ def _ensure_db_dir(db_path: str) -> None:
 
 
 # ---------- 同步执行体（在线程池中跑，避免阻塞事件循环）----------
-def _execute_graph(query: str, token_budget: int, thread_id: Optional[str] = None) -> Dict[str, Any]:
+def _execute_graph(
+    query: str,
+    token_budget: int,
+    thread_id: Optional[str] = None,
+    trace_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """在 worker 线程中运行四角色图（同步阻塞调用）。
 
     传入 thread_id 时启用 SQLite 检查点持久化（复用 graph/builder 的既有能力），
     使该任务可被 /api/replay/{thread_id} 回放或断点续跑；不传则与改造前一致。
+
+    trace_id：由请求入口生成并显式传入——run_in_executor **不会**传播
+    contextvars 到工作线程（asyncio.to_thread 才会），必须在线程函数入口
+    用 bind_trace_id 重新绑定，否则这条链路的日志全是占位符 "-"。
     """
+    from logger.trace_context import bind_trace_id
+
+    with bind_trace_id(trace_id):
+        return _execute_graph_inner(query, token_budget, thread_id)
+
+
+def _execute_graph_inner(
+    query: str, token_budget: int, thread_id: Optional[str] = None
+) -> Dict[str, Any]:
     from graph.builder import build_graph, create_initial_state  # 延迟导入
     from metrics.cost_attribution import attribute_cost  # 延迟导入
 
@@ -532,7 +588,10 @@ def _execute_graph(query: str, token_budget: int, thread_id: Optional[str] = Non
 # ---------- 请求模型 ----------
 class RunTaskRequest(BaseModel):
     query: str
-    token_budget: Optional[int] = DEFAULT_TOKEN_BUDGET
+    # 预算必须有下界：0 / 负数在语义上不成立（"不花 token 完成任务"），
+    # 之前的宽松签名会让这类请求一路走到图里才出怪问题。上界挡的是
+    # 手滑多打一个 0 造成的额度事故。
+    token_budget: Optional[int] = Field(default=DEFAULT_TOKEN_BUDGET, ge=1, le=1_000_000)
     # 可选：传入则持久化到 SQLite 检查点，之后可用 /api/replay/{thread_id} 回放
     thread_id: Optional[str] = None
 
@@ -547,6 +606,9 @@ class RunTaskResponse(BaseModel):
     # 成本归因报告（按角色/工具/轮次拆分）；失败时为空
     cost_report: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+    # 链路追踪 ID：与响应头 X-Trace-Id 一致，用户报问题时可直接给出，
+    # 便于从日志反查整条链路（工具调用、LLM 调用都带同一个 id）
+    trace_id: str = ""
 
 
 _EMPTY_QUERY_MSG = "query 不能为空"
@@ -697,11 +759,16 @@ async def run_task(
 
     loop = asyncio.get_event_loop()
     t0 = time.time()
+    # 取中间件绑定的 trace_id 并显式传给工作线程（contextvars 不跨线程池）
+    from logger.trace_context import get_trace_id
+
+    trace_id = get_trace_id()
     try:
         # 在独立 LLM 线程池中执行同步图调用，释放事件循环且不与默认池争用
         result = await asyncio.wait_for(
             loop.run_in_executor(
-                _LLM_EXECUTOR, _execute_graph, req.query, req.token_budget, req.thread_id
+                _LLM_EXECUTOR, partial(_execute_graph, trace_id=trace_id),
+                req.query, req.token_budget, req.thread_id,
             ),
             timeout=RUN_TASK_TIMEOUT_S,
         )
@@ -721,6 +788,7 @@ async def run_task(
                 steps=0,
                 cost_report=result.get("cost_report"),
                 error=f"LLM 依赖失败，任务未执行：{llm_error}",
+                trace_id=trace_id,
             )
 
         _record("run_task", latency, tokens=result["token_used"])
@@ -732,6 +800,7 @@ async def run_task(
             token_budget=req.token_budget,
             steps=step_count,
             cost_report=result.get("cost_report"),
+            trace_id=trace_id,
         )
     except asyncio.TimeoutError:
         latency = (time.time() - t0) * 1000.0
