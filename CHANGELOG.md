@@ -14,6 +14,9 @@
 - **自建能力评测集与 CI 门禁**（`evals/`，Phase 5）：30 条用例按 **15 正常 / 9 边界 / 6 对抗** 分布（对齐 5:3:2），分两档执行——`ci` 档只跑"不进 LLM 就能判定"的断言（空输入 400 / 超长 413 / 缺字段 422 / 未授权 401），**零 LLM 消耗**故可每次提交都跑；`nightly` 档真跑四角色图，支持 `--limit N` 控制额度、`--dry-run` 零成本自检。通过线：ci 档 L1 **100%**（安全断言零容忍），nightly 档 95%。**已用注入失败期望的方式验证门禁确实能阻断**（退出码 1）——此前 10K 超长输入的教训就是"只记录不断言"，CI 一直绿。
 - **跨进程共享状态存储**（`tools/rate_store.py`，可选启用）：限流/熔断/幂等原本是进程内 dict，多 worker 下各算一份、额度被放大 N 倍。现提供 `StateStore`（**标准库 `sqlite3`，零新增依赖**）：令牌桶用 `BEGIN IMMEDIATE` 保证读-改-写原子，WAL + `synchronous=NORMAL`，`timeout=5.0` 绝不无限阻塞，DB 异常 **fail-open**（限流组件不能成为新的故障源）。经 `PEC_SHARED_STATE_DB` 启用，**未设置时行为与改造前完全一致**。实测：4 进程 × 60 次请求、burst=100 → 全局放行恰好 100（进程内方案为 400），单次判断 p99 **0.67ms**。
 - **API Key 鉴权与租户隔离**（`scripts/auth.py`）：`PECS_API_KEYS="key1:tenant_a,key2:tenant_b"` 环境变量驱动，**未配置时鉴权自动关闭**（本地开发 / CI / 评测行为逐字不变）。`/run_task` 与 `/api/replay/{thread_id}` 接线：缺失或错误 Key → 401；跨租户访问 `thread_id` → **404 而非 403**（403 会确认资源存在，等于泄露 `thread_id` 的有效性）。归属靠 `thread_id` 命名约定 `<tenant>-<后缀>`，避免引入额外存储。
+- **`/metrics` 端点鉴权**：指标是系统级数据（不含租户业务内容），允许任何有效 Key 拉取、只挡匿名；`/health*` 保持免 Key（K8s probe）。基准脚本经 `PEC_BENCHMARK_KEY` 自动带鉴权头。
+- **跨进程熔断与幂等**（`tools/wrapper_state.py`）：继承 `StateStore` 扩展熔断表；`PEC_SHARED_STATE_DB` 一个开关打通限流 + 熔断 + 幂等三类外置状态。共享幂等带 TTL（`PEC_IDEM_TTL_SEC`，默认 600s）。熔断时间基准在共享模式下从 `monotonic` 换为墙钟（跨进程可比）。
+- **Prompt 版本注册表与运行时回滚**（`tools/prompt_registry.py`）：覆盖式设计——代码内基线不动，`prompts/v{N}/<role>.txt` 存在时按角色覆盖。`POST /admin/prompt/rollback?target=v{N}` 运行时即时切换（重启回落 `PEC_PROMPT_VERSION`），`/admin/prompt/status` 查看各角色来源，`/health` 暴露当前版本。管理端点仅限 `PEC_ADMIN_TENANTS` 租户。诚实边界：灰度为进程粒度流量切分，无按请求概率灰度。
 
 ### Fixed
 - **门控数据集在受限网络下无法拉取**：定位并规避 `snapshot_download()` 整仓拉取的两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，跨域重定向**丢掉 `Authorization` 头**，门控文件必然 401；② 119 个文件逐个创建/删除 `.locks`/`*.incomplete`，累计删除次数触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。两者均在 `scripts/download_gaia.py` 与 `datasets/gaia_official_dataset.py` 的文档字符串中记录成因与规避方式。

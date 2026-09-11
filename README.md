@@ -453,8 +453,11 @@ gunicorn scripts.api:app -w 4 -b 0.0.0.0:8000 --timeout 300 --prometheus-dir $PR
 | `PEC_SEARCH_PROVIDER` | 否 | 空 | 真实搜索 API 提供商，目前支持 `tavily`；配置后 Web 检索改用其接地摘要 |
 | `PEC_SEARCH_API_KEY` | 否 | 空 | 对应搜索 API Key |
 | `RUN_MODE` | 否 | `eval` | 运行模式：`eval` 关闭工具加固（行为等同改造前）/ `business` 全部开启 |
-| `PECS_API_KEYS` | 否 | 空 | **API 鉴权**，`"key1:tenant_a,key2:tenant_b"` 格式；**未配置时鉴权自动关闭**（本地开发/CI/评测不受影响）。开启后 `/run_task` 与 `/api/replay/{id}` 需带 `X-API-Key` 头 |
-| `PEC_SHARED_STATE_DB` | 否 | 空 | 跨进程共享的限流状态（SQLite 路径）。**多 worker 部署时必填**——未设置时限流是进程内令牌桶，额度会被放大 N 倍 |
+| `PECS_API_KEYS` | 否 | 空 | **API 鉴权**，`"key1:tenant_a,key2:tenant_b"` 格式；**未配置时鉴权自动关闭**（本地开发/CI/评测不受影响）。开启后 `/run_task`、`/api/replay/{id}`、`/metrics*` 需带 `X-API-Key` 头（`/health*` 永远免 Key） |
+| `PEC_ADMIN_TENANTS` | 否 | `tenant_jixiang` | 允许调用管理端点（`/admin/prompt/*`）的租户，逗号分隔 |
+| `PEC_SHARED_STATE_DB` | 否 | 空 | 跨进程共享的服务状态（SQLite 路径）：限流令牌桶、**熔断计数、幂等缓存**三合一。**多 worker 部署时必填**——未设置时全部是进程内状态，熔断阈值与幂等在多 worker 下形同虚设 |
+| `PEC_IDEM_TTL_SEC` | 否 | 600 | 共享幂等缓存的过期时间（秒），仅 `PEC_SHARED_STATE_DB` 启用时生效 |
+| `PEC_PROMPT_VERSION` | 否 | `v0` | 启动时的 Prompt 版本（v0 = 代码内基线；`prompts/v{N}/<role>.txt` 存在时覆盖）。运行时可用 `POST /admin/prompt/rollback?target=v{N}` 即时切换（重启后回落本值） |
 | `PEC_EGRESS_ALLOW_PRIVATE` | 否 | 空 | 置 `1` 允许 `api_call` 访问内网地址（仅本地开发，生产勿开） |
 | `MAX_QUERY_CHARS` | 否 | 10000 | 单条 query 字符上限，超限直接 413 拦截、不进入 LLM |
 | `PEC_CHECKPOINT_DB` | 否 | `results/checkpoints.sqlite` | 断点续跑 / 链路回放所用的 SQLite 检查点文件 |
