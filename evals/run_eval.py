@@ -107,7 +107,17 @@ def run_ci_case(case: dict) -> dict:
     api._STARTUP["llm_configured"] = False
 
     body = {} if case.get("omit_query") else {"query": _ci_input(case)}
-    headers = {} if case.get("skip_auth") else {"X-API-Key": "ci-demo-key"}
+    # 归属校验用例：请求体携带 thread_id（同租户放行 / 跨租户 404）
+    if case.get("thread_id"):
+        body["thread_id"] = case["thread_id"]
+
+    # 鉴权断言的三种凭据形态：无 Key / 错误 Key（bad_key）/ 有效 Key
+    if case.get("skip_auth"):
+        headers = {}
+    elif case.get("bad_key"):
+        headers = {"X-API-Key": case["bad_key"]}
+    else:
+        headers = {"X-API-Key": "ci-demo-key"}
 
     with TestClient(api.app) as client:
         resp = client.post("/run_task", json=body, headers=headers)

@@ -1,6 +1,6 @@
 {
   "mode": "ci",
-  "total": 6,
+  "total": 19,
   "l1_pass_rate": 1.0,
   "pass_line": 1.0,
   "by_category": {
@@ -9,12 +9,12 @@
       "passed": 0
     },
     "boundary": {
-      "total": 5,
-      "passed": 5
+      "total": 14,
+      "passed": 14
     },
     "adversarial": {
-      "total": 1,
-      "passed": 1
+      "total": 5,
+      "passed": 5
     }
   },
   "results": [
@@ -64,6 +64,110 @@
       "passed": true,
       "failures": [],
       "status": 401,
+      "steps": 0
+    },
+    {
+      "id": "B10",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 400,
+      "steps": 0
+    },
+    {
+      "id": "B11",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 400,
+      "steps": 0
+    },
+    {
+      "id": "B12",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 503,
+      "steps": 0
+    },
+    {
+      "id": "B13",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 401,
+      "steps": 0
+    },
+    {
+      "id": "B14",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 503,
+      "steps": 0
+    },
+    {
+      "id": "B15",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 503,
+      "steps": 0
+    },
+    {
+      "id": "B16",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 503,
+      "steps": 0
+    },
+    {
+      "id": "B17",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 503,
+      "steps": 0
+    },
+    {
+      "id": "B18",
+      "category": "boundary",
+      "passed": true,
+      "failures": [],
+      "status": 404,
+      "steps": 0
+    },
+    {
+      "id": "A07",
+      "category": "adversarial",
+      "passed": true,
+      "failures": [],
+      "status": 401,
+      "steps": 0
+    },
+    {
+      "id": "A08",
+      "category": "adversarial",
+      "passed": true,
+      "failures": [],
+      "status": 401,
+      "steps": 0
+    },
+    {
+      "id": "A09",
+      "category": "adversarial",
+      "passed": true,
+      "failures": [],
+      "status": 401,
+      "steps": 0
+    },
+    {
+      "id": "A10",
+      "category": "adversarial",
+      "passed": true,
+      "failures": [],
+      "status": 404,
       "steps": 0
     }
   ]
