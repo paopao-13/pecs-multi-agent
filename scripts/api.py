@@ -210,18 +210,22 @@ class _TokenBucket:
 
 _RATE_BUCKETS: Dict[str, _TokenBucket] = {}
 
-# 跨进程共享的限流状态（可选）：PEC_SHARED_STATE_DB 指向一个 SQLite 文件时启用，
-# 让多 worker 部署共享同一份令牌桶。未设置时行为与改造前完全一致（进程内令牌桶）。
-# 详见 tools/rate_store.py —— 那里说明了为什么不用 Redis（无环境）与何时该换。
+# 跨进程共享的服务状态（可选）：PEC_SHARED_STATE_DB 指向一个 SQLite 文件时启用，
+# 让多 worker 部署共享同一份令牌桶、熔断计数与幂等缓存。
+# 未设置时行为与改造前完全一致（全部进程内）。
+# SharedStateStore 继承 rate_store.StateStore（限流接口不变），仅扩展熔断表；
+# 同时注入 tools.wrapper，让熔断/幂等也走共享存储。详见两个模块的 docstring。
 _SHARED_STATE_DB = os.getenv("PEC_SHARED_STATE_DB", "")
 _STATE_STORE = None
 if _SHARED_STATE_DB:
     try:
-        from tools.rate_store import StateStore
+        from tools.wrapper_state import SharedStateStore
+        import tools.wrapper as _wrapper
 
-        _STATE_STORE = StateStore(_SHARED_STATE_DB)
+        _STATE_STORE = SharedStateStore(_SHARED_STATE_DB)
+        _wrapper.configure_shared_state(_STATE_STORE)
     except Exception as exc:  # 导入或建库失败不应阻断启动（限流非核心路径）
-        print(f"[启动] 共享限流状态初始化失败，回退到进程内令牌桶：{exc}")
+        print(f"[启动] 共享状态初始化失败，回退到进程内实现：{exc}")
         _STATE_STORE = None
 
 

@@ -22,13 +22,14 @@ K3 开关默认关闭
 
 ============================ 已知局限（主动披露） ============================
 
-L1 熔断状态仅单进程有效
-   计数存于本进程内存字典。scripts/api.py 若以多 worker（uvicorn --workers>1
-   或 gunicorn 多进程）运行，各 worker 的计数互不共享，熔断阈值只在单进程
-   内成立。若要跨进程共享，需落到外部存储（Redis / SQLite），本期不做。
+L1 熔断状态仅单进程有效（可选解法已就绪）
+   默认计数存于本进程内存字典，多 worker 不共享。设置 PEC_SHARED_STATE_DB
+   后由 scripts/api.py 注入 SharedStateStore（SQLite 跨进程共享），
+   阈值在全部 worker 间生效。
 
-L2 幂等缓存有上限且是进程内 LRU
-   最多缓存 _IDEMPOTENT_MAX 条，超出按插入顺序淘汰最旧项。同样不跨进程。
+L2 幂等缓存有上限且默认是进程内 LRU（可选解法已就绪）
+   最多缓存 _IDEMPOTENT_MAX 条，超出按插入顺序淘汰最旧项。共享模式下
+   落 SQLite，带 TTL（PEC_IDEM_TTL_SEC，默认 600s），跨进程可见。
 
 L3 超时是「放弃等待」而非「真正中断」
    见 run_with_timeout 的说明。
@@ -36,6 +37,7 @@ L3 超时是「放弃等待」而非「真正中断」
 import hashlib
 import json
 import logging
+import os
 import threading
 import time
 from collections import OrderedDict
@@ -155,13 +157,32 @@ READ_ONLY_TOOLS = frozenset({"search", "web_browse", "file_read", "file_parse", 
 # ============================================================
 # Day2-2 熔断器
 # ============================================================
-# 【局限 L1】仅单进程有效：状态是本进程内存字典，多 worker 不共享。
+# 【局限 L1 → 已提供可选解法】仅单进程有效：状态是本进程内存字典，多
+# worker 不共享。设置 PEC_SHARED_STATE_DB 后熔断/幂等自动改走
+# tools/wrapper_state.SharedStateStore（SQLite 跨进程共享），见
+# configure_shared_state()。未配置时行为与历史版本逐字一致。
 _breaker_state: Dict[str, Dict[str, Any]] = {}
 _breaker_lock = threading.Lock()
+
+# 跨进程共享存储（可选）：默认 None = 进程内模式
+_shared_store: Optional[Any] = None
+
+
+def configure_shared_state(store: Optional[Any]) -> None:
+    """注入跨进程共享存储（SharedStateStore）。
+
+    由 scripts/api.py 启动时按 PEC_SHARED_STATE_DB 调用；测试可直接注入
+    临时实例。传 None 恢复进程内模式。
+    """
+    global _shared_store
+    _shared_store = store
 
 
 def breaker_record_failure(action: str) -> None:
     """记录一次失败；连续失败达阈值即打开熔断（记录 opened_at）。"""
+    if _shared_store is not None:
+        _shared_store.breaker_record_failure(action, TOOL_BREAKER_THRESHOLD)
+        return
     with _breaker_lock:
         state = _breaker_state.setdefault(action, {"failures": 0, "opened_at": None})
         state["failures"] += 1
@@ -171,6 +192,9 @@ def breaker_record_failure(action: str) -> None:
 
 def breaker_record_success(action: str) -> None:
     """一次成功即清零该工具的连续失败计数（半开成功 → 完全恢复）。"""
+    if _shared_store is not None:
+        _shared_store.breaker_record_success(action)
+        return
     with _breaker_lock:
         _breaker_state.pop(action, None)
 
@@ -180,9 +204,20 @@ def breaker_is_open(action: str, now: Optional[float] = None) -> bool:
 
     RESET_SEC 到期后自动「半开」：清掉计数并放行本次调用，由随后的
     成功/失败重新决定是否再次熔断。
+
+    注意 now 参数仅在进程内模式下生效（monotonic 不可跨进程传递）；
+    共享模式用存储侧墙钟自行判断冷却。
     """
     if not TOOL_BREAKER_ENABLED:
         return False
+    if _shared_store is not None:
+        failures, opened_ts = _shared_store.breaker_snapshot(action)
+        if failures < TOOL_BREAKER_THRESHOLD or opened_ts is None:
+            return False
+        if time.time() - opened_ts >= TOOL_BREAKER_RESET_SEC:
+            _shared_store.breaker_record_success(action)  # 半开：放行探测
+            return False
+        return True
     now = time.monotonic() if now is None else now
     with _breaker_lock:
         state = _breaker_state.get(action)
@@ -199,6 +234,9 @@ def breaker_is_open(action: str, now: Optional[float] = None) -> bool:
 
 def reset_breakers() -> None:
     """清空全部熔断状态（测试 / 运维手动复位用）。"""
+    if _shared_store is not None:
+        _shared_store.breaker_reset_all()
+        return
     with _breaker_lock:
         _breaker_state.clear()
 
@@ -206,8 +244,11 @@ def reset_breakers() -> None:
 # ============================================================
 # Day2-3 幂等缓存
 # ============================================================
-# 【局限 L2】进程内 LRU，最多 _IDEMPOTENT_MAX 条，不跨进程。
+# 【局限 L2 → 已提供可选解法】进程内 LRU，最多 _IDEMPOTENT_MAX 条。
+# 共享模式（configure_shared_state 注入后）落 SQLite，带 TTL
+# （PEC_IDEM_TTL_SEC，默认 600s），跨进程可见。
 _IDEMPOTENT_MAX = 512
+_IDEMPOTENT_TTL_SEC = float(os.getenv("PEC_IDEM_TTL_SEC", "600"))
 _idempotent_cache: "OrderedDict[str, str]" = OrderedDict()
 _idempotent_lock = threading.Lock()
 
@@ -217,6 +258,11 @@ def idempotency_key(action: str, args: Any, context: Optional[Dict[str, Any]]) -
 
     thread_id 取自 context（缺省 "-"）：同一任务内重复调用同工具同参数
     才会命中缓存；不同 thread_id 之间不串味。
+
+    租户隔离说明：thread_id 遵循鉴权层的命名约定 "<tenant>-<后缀>"
+    （scripts/auth.assert_thread_owner 强制校验归属），因此键里天然带租户
+    边界，无需显式 tenant 前缀。不传 thread_id 的匿名请求共享 "-" 键空间，
+    语义上仍正确——同 thread_id + 同工具 + 同参数的缓存结果一致。
     """
     thread_id = (context or {}).get("thread_id", "-")
     try:
@@ -228,6 +274,9 @@ def idempotency_key(action: str, args: Any, context: Optional[Dict[str, Any]]) -
 
 
 def _idempotent_lookup(key: str) -> Optional[str]:
+    if _shared_store is not None:
+        # DB 读失败按未命中处理（重新执行，语义安全），见 wrapper_state 模块说明
+        return _shared_store.idem_lookup(key, _IDEMPOTENT_TTL_SEC)
     with _idempotent_lock:
         if key in _idempotent_cache:
             _idempotent_cache.move_to_end(key)  # LRU：命中即刷新
@@ -236,6 +285,9 @@ def _idempotent_lookup(key: str) -> Optional[str]:
 
 
 def _idempotent_store(key: str, result: str) -> None:
+    if _shared_store is not None:
+        _shared_store.idem_store(key, result)
+        return
     with _idempotent_lock:
         _idempotent_cache[key] = result
         _idempotent_cache.move_to_end(key)
@@ -245,6 +297,9 @@ def _idempotent_store(key: str, result: str) -> None:
 
 def clear_idempotent_cache() -> None:
     """清空幂等缓存（测试 / 运维用）。"""
+    if _shared_store is not None:
+        _shared_store.idem_clear_all()
+        return
     with _idempotent_lock:
         _idempotent_cache.clear()
 
