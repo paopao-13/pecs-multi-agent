@@ -80,6 +80,12 @@ PLANNER_SYSTEM_PROMPT = """你是一个任务规划专家（Planner），负责�
 - 如果任务附带文件或图片，优先用 file_parse / multimodal 工具提取内容后再作答
 """
 
+# 灰度/回滚：生效版本（PEC_PROMPT_VERSION / 运行时切换）存在 prompts/v{N}/planner.txt
+# 覆盖文件时用文件内容，否则逐字保持上方基线（未配置时行为与改造前一致）。
+from tools import prompt_registry as _prompt_registry  # noqa: E402
+
+PLANNER_SYSTEM_PROMPT = _prompt_registry.resolve("planner", PLANNER_SYSTEM_PROMPT)
+
 
 def planner_node(state: dict) -> dict:
     """

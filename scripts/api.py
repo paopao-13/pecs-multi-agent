@@ -87,7 +87,13 @@ from config import (  # noqa: E402
     MAX_QUERY_CHARS,
     RUN_MODE,
 )
-from scripts.auth import assert_thread_owner, require_api_key, require_metrics_key  # noqa: E402
+from scripts.auth import assert_admin_tenant, assert_thread_owner, require_api_key, require_metrics_key  # noqa: E402
+from tools import prompt_registry as _prompt_registry  # noqa: E402
+
+
+def _assert_admin_tenant(tenant: str) -> None:
+    """管理端点的租户校验（转发到 auth 模块，保持依赖单一来源）。"""
+    assert_admin_tenant(tenant)
 
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起。
 #
@@ -583,10 +589,41 @@ async def health() -> Dict[str, Any]:
         "run_mode": RUN_MODE,
         # 限流状态是否跨进程共享（多 worker 下生效的前提）
         "shared_state": bool(_STATE_STORE),
+        # 当前生效的 Prompt 版本（灰度/回滚可见性；v0 = 代码内基线）
+        "prompt_version": _prompt_registry.get_active_version(),
         "ready": True,
     }
     _record("health", (time.time() - t0) * 1000.0)
     return out
+
+
+@app.get("/admin/prompt/status", dependencies=[Depends(require_api_key)])
+async def admin_prompt_status(tenant: str = Depends(require_api_key)) -> Dict[str, Any]:
+    """Prompt 版本状态：当前版本 + 各角色 Prompt 来源（基线 / 覆盖文件）。
+
+    仅限管理租户（PEC_ADMIN_TENANTS，默认 tenant_jixiang）。
+    """
+    _assert_admin_tenant(tenant)
+    return _prompt_registry.status()
+
+
+@app.post("/admin/prompt/rollback", dependencies=[Depends(require_api_key)])
+async def admin_prompt_rollback(
+    target: str,
+    tenant: str = Depends(require_api_key),
+) -> Dict[str, Any]:
+    """运行时切换 Prompt 版本（回滚 / 灰度推进共用同一机制）。
+
+    改的是进程内状态：立即生效、无需重启；进程重启后回落到
+    PEC_PROMPT_VERSION 环境变量的值——这正是"临时回滚"的语义，
+    永久回滚应改 .env 并重启（跑批/新会话即时可见）。
+    """
+    _assert_admin_tenant(tenant)
+    try:
+        version = _prompt_registry.set_active_version(target)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {"switched_to": version, **_prompt_registry.status()}
 
 
 @app.get(

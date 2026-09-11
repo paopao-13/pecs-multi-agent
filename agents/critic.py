@@ -55,6 +55,12 @@ CRITIC_SYSTEM_PROMPT = """你是一个严格的质量评审专家（Critic），
 注意：overall = (accuracy + consistency + completeness) / 3，保留一位小数。
 """
 
+# 灰度/回滚：生效版本存在 prompts/v{N}/critic.txt 覆盖文件时用文件内容，
+# 否则逐字保持上方基线（未配置时行为与改造前一致）。
+from tools import prompt_registry as _prompt_registry  # noqa: E402
+
+CRITIC_SYSTEM_PROMPT = _prompt_registry.resolve("critic", CRITIC_SYSTEM_PROMPT)
+
 
 def critic_node(state: dict) -> dict:
     """

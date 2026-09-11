@@ -39,6 +39,12 @@ SYNTHESIZER_SYSTEM_PROMPT = """你是一个结果综合专家（Synthesizer）�
 - ⚠️ 如果问题要求判断（如"是否"、"有没有"、"对吗"），你必须在最终答案中明确给出"是"或"否"的结论
 """
 
+# 灰度/回滚：生效版本存在 prompts/v{N}/synthesizer.txt 覆盖文件时用文件内容，
+# 否则逐字保持上方基线（未配置时行为与改造前一致）。
+from tools import prompt_registry as _prompt_registry  # noqa: E402
+
+SYNTHESIZER_SYSTEM_PROMPT = _prompt_registry.resolve("synthesizer", SYNTHESIZER_SYSTEM_PROMPT)
+
 
 def synthesizer_node(state: dict) -> dict:
     """

@@ -45,6 +45,12 @@ EXECUTOR_SYSTEM_PROMPT = """你是一个任务执行专家（Executor），负�
 - webshop工具的args需要: {"instruction": "购物需求", "catalog": [...可选商品列表...]}
 """
 
+# 灰度/回滚：生效版本存在 prompts/v{N}/executor.txt 覆盖文件时用文件内容，
+# 否则逐字保持上方基线（未配置时行为与改造前一致）。
+from tools import prompt_registry as _prompt_registry  # noqa: E402
+
+EXECUTOR_SYSTEM_PROMPT = _prompt_registry.resolve("executor", EXECUTOR_SYSTEM_PROMPT)
+
 
 def executor_node(state: dict) -> dict:
     """

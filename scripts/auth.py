@@ -76,3 +76,20 @@ def require_metrics_key(request: Request) -> str:
     if not AUTH_ENABLED:
         return ANONYMOUS_TENANT
     return require_api_key(request)
+
+
+# 管理操作（如 Prompt 回滚）允许的租户，逗号分隔；默认仅项目主租户。
+# 未启用鉴权时管理端点同样放开（与整个鉴权体系"未配置即关闭"一致）。
+_ADMIN_TENANTS = {
+    t.strip()
+    for t in os.getenv("PEC_ADMIN_TENANTS", "tenant_jixiang").split(",")
+    if t.strip()
+}
+
+
+def assert_admin_tenant(tenant: str) -> None:
+    """校验当前租户可执行管理操作，否则 403。未启用鉴权时放行。"""
+    if not AUTH_ENABLED:
+        return
+    if tenant not in _ADMIN_TENANTS:
+        raise HTTPException(status_code=403, detail="当前租户无管理权限")
