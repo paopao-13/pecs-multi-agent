@@ -317,9 +317,9 @@ Critic 在评测中拦截了多类错误，以下是两个典型案例：
 框架提供三个清晰的主入口，覆盖演示、评测与生产级运行：
 
 ```bash
-# 1. Web 可视化演示（看四角色协作全过程）
-python scripts/app.py
-# 打开 http://127.0.0.1:5000 —— 任务执行 / GAIA 评估 / 对比测试 三个 Tab
+# 1. 启动 API 服务（四角色协作全过程由 /run_task 驱动）
+python -m uvicorn scripts.api:app --host 127.0.0.1 --port 8000
+# 打开 http://127.0.0.1:8000/docs 查看交互文档；/health 探活、/metrics 指标
 
 # 2. WebShop 真实环境评测（AgentBench 文本环境）
 python run_webshop.py --tasks 12
@@ -414,10 +414,10 @@ cp .env.example .env
 ## 启动
 
 ```bash
-python scripts/app.py
+python -m uvicorn scripts.api:app --host 127.0.0.1 --port 8000
 ```
 
-然后打开 http://127.0.0.1:5000，有三个 Tab：
+然后打开 http://127.0.0.1:8000/docs，可用端点包括：
 - **任务执行**：输入问题，看四个 Agent 怎么协作
 - **GAIA 评估**：批量跑评测，对比多智能体和 ReAct
 - **对比测试**：同一问题并排跑，直观对比 Token 消耗
@@ -557,15 +557,24 @@ PEC_SKIP_LLM_PROBE=1 python -m uvicorn scripts.api:app --port 8000
 
 > 现场演示推荐从 `quickstart_no_api.py` 开始（零配置即可运行），再展示 `security_sandbox_demo.py`（安全设计亮点）。
 
-### Web 可视化界面
+### Web 界面
 
-`python scripts/app.py` 启动后访问 `http://127.0.0.1:5000`，提供任务执行、GAIA 评估、多框架对比三个视图：
+当前唯一入口是 FastAPI 服务（Flask 演示应用 `scripts/app.py` 已废弃删除）：
+
+```bash
+python -m uvicorn scripts.api:app --host 127.0.0.1 --port 8000
+# http://127.0.0.1:8000/docs  交互式 API 文档
+# http://127.0.0.1:8000/health  探活（含 llm_configured / prompt_version / shared_state）
+# http://127.0.0.1:8000/metrics 指标（鉴权开启后需带 X-API-Key）
+```
+
+下方截图来自**已废弃的历史 Flask 演示界面**，仅作能力展示，入口已由上述
+FastAPI 服务取代（历史界面提供的三个视图，现分别对应 `/run_task`、
+GAIA 评测脚本 `run_gaia_official.py`、消融实验脚本 `run_all_ablation.sh`）：
 
 ![PECS 任务执行视图](assets/demo_screenshot.png)
 
 ![PECS GAIA 评估视图](assets/demo_screenshot_gaia.png)
-
-> 截图来自本地运行实例（任务执行视图与 GAIA 评估视图）。实际推理需配置可用的 LLM 网关；未配置 Key 时仍可浏览完整界面与静态样例。
 
 ## 高级功能
 
@@ -730,8 +739,7 @@ pecs-multi-agent/
 │   └── custom_critic_override_demo.py  # 自定义Critic示例
 │
 ├── scripts/               # 自动化脚本与主入口
-│   ├── app.py                    # Flask Web 入口
-│   ├── api.py                    # FastAPI 服务（/run_task、/metrics、/api/replay）
+│   ├── api.py                    # FastAPI 服务（/run_task、/metrics、/api/replay、/admin/prompt/*）
 │   ├── download_gaia.py          # GAIA 官方数据集本地镜像下载器（绕开 HF 缓存机制）
 │   ├── run_all_ablation.sh       # 一键运行消融实验（6组配置）
 │   ├── run_baseline_compare.sh   # 多框架基线对比

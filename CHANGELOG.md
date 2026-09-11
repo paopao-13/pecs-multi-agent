@@ -18,6 +18,11 @@
 - **跨进程熔断与幂等**（`tools/wrapper_state.py`）：继承 `StateStore` 扩展熔断表；`PEC_SHARED_STATE_DB` 一个开关打通限流 + 熔断 + 幂等三类外置状态。共享幂等带 TTL（`PEC_IDEM_TTL_SEC`，默认 600s）。熔断时间基准在共享模式下从 `monotonic` 换为墙钟（跨进程可比）。
 - **Prompt 版本注册表与运行时回滚**（`tools/prompt_registry.py`）：覆盖式设计——代码内基线不动，`prompts/v{N}/<role>.txt` 存在时按角色覆盖。`POST /admin/prompt/rollback?target=v{N}` 运行时即时切换（重启回落 `PEC_PROMPT_VERSION`），`/admin/prompt/status` 查看各角色来源，`/health` 暴露当前版本。管理端点仅限 `PEC_ADMIN_TENANTS` 租户。诚实边界：灰度为进程粒度流量切分，无按请求概率灰度。
 
+### Removed
+- **废弃 Flask 演示应用 `scripts/app.py`**（200 行，7 个路由 + `templates/index.html`）：与生产入口 `scripts/api.py`（FastAPI）功能重叠、长期双栈并存，且历史 Dockerfile 曾错指它导致容器健康检查必挂。删除前确认**代码零引用**（仅 `.workbuddy/` 历史评估文档提及），唯一连带文件 `run_demo.py`（仅为废弃界面截图）一并删除。
+  替代入口：`python -m uvicorn scripts.api:app --host 127.0.0.1 --port 8000`（`/docs` 交互文档；原 Flask 三视图分别对应 `/run_task`、`run_gaia_official.py`、`run_all_ablation.sh`）。
+  注意：`flask` 依赖**保留**——`tools/webshop_server.py` 与 `webshop/` 仍在用。
+
 ### Fixed
 - **门控数据集在受限网络下无法拉取**：定位并规避 `snapshot_download()` 整仓拉取的两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，跨域重定向**丢掉 `Authorization` 头**，门控文件必然 401；② 119 个文件逐个创建/删除 `.locks`/`*.incomplete`，累计删除次数触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。两者均在 `scripts/download_gaia.py` 与 `datasets/gaia_official_dataset.py` 的文档字符串中记录成因与规避方式。
 - **🔴 `.docx`/`.pptx` 静默解析失败（既有缺陷，非 P0 回归）**：旧的分发只有 pdf/xlsx/csv/image，Office Open XML 落到 `_parse_text` 回退 → **直接吐 ZIP 二进制**（`PK\x03\x04…`）。工具返回 success，LLM 却拿到乱码，属于**静默错误**。修复后实测：GAIA 的 `.docx` 读出 65 段含 `Gift Assignments` 表格，`.pptx` 读出 8 页（crayfish / nematodes / isopods / eels / Yeti crab / Spider crab…）。
