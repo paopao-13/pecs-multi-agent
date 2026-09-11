@@ -43,7 +43,10 @@ def web_search(args: dict) -> str:
     query = args.get("query", "")
     num_results = args.get("num_results", 3)
 
-    if not query:
+    # 纯空白同样视为缺参：否则会带着无意义的查询串打到真实检索后端，
+    # 既浪费额度也让调用方拿到"搜索无结果"这种误导性成功。
+    # 与 scripts/api.py 的 _validate_query 判空口径保持一致。
+    if not query or not query.strip():
         return "错误：缺少 query 参数"
 
     # mock 数据仅【eval 模式】下优先命中 —— 它保证内置 33 题样例可复现（开卷），

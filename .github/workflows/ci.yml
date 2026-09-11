@@ -59,7 +59,13 @@ jobs:
         # 标记说明：实际使用的是 requires_api_key（tests/conftest.py 注册，无 Key 时自动 skip），
         # requires_api 是历史别名、无任何用例使用；这里两个都排除以免将来再出现
         # "过滤了 A 名字、用例用的是 B 名字" 的静默失效。
-        run: python -m pytest -m "not slow and not requires_api and not requires_api_key" --tb=short
+        run: python -m pytest -m "not slow and not requires_api and not requires_api_key" --tb=short --cov=tools --cov=metrics --cov=logger --cov-report=term-missing --cov-fail-under=60
+
+      # 覆盖率门禁范围说明（为什么不是全仓）：
+      #   tools / metrics / logger 是纯逻辑与可观测层，可离线测、也最该守住；
+      #   agents / scripts 大量分支依赖真实 LLM（打网络、花额度），强行覆盖
+      #   会把测试变成"烧钱且不稳定"。门禁取 60%（当前 63%，留 3pp 缓冲），
+      #   目的是防倒退，不是追数字。
 
       - name: Run capability eval (ci tier, zero LLM cost)
         # 只跑"不进 LLM 就能判定"的断言（空输入 400 / 超长 413 / 缺字段 422 / 未授权 401），
