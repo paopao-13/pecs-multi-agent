@@ -17,6 +17,18 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# 测试环境隔离：预置空字符串占位，阻止本地 .env 的真实鉴权配置进入测试。
+# 原理：config.py 的 load_dotenv() 默认 override=False，不覆盖已存在的
+# 环境变量——因此这里先置空，.env 中的 PECS_API_KEYS 就不会被注入。
+# （仅用 pop 不够：conftest 先执行，但后续导入 config 时 load_dotenv 会
+# 把 .env 的值重新注入，scripts.auth 导入时 AUTH_ENABLED 又变 True，
+# 所有不带 Key 的既有用例被 401 挡住。）
+# 测试默认运行在"鉴权关闭"环境（与 CI 一致）；鉴权行为本身由
+# tests/test_auth.py 通过 monkeypatch 构造 Key 表显式覆盖，不依赖真实凭据。
+# 必须在任何项目模块（config / scripts.auth）被导入之前执行。
+os.environ["PECS_API_KEYS"] = ""
+os.environ["PEC_BENCHMARK_KEY"] = ""
+
 
 def pytest_configure(config):
     """注册自定义标记"""

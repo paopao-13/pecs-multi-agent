@@ -87,7 +87,7 @@ from config import (  # noqa: E402
     MAX_QUERY_CHARS,
     RUN_MODE,
 )
-from scripts.auth import assert_thread_owner, require_api_key  # noqa: E402
+from scripts.auth import assert_thread_owner, require_api_key, require_metrics_key  # noqa: E402
 
 # /run_task 最长等待时间（秒），超时返回结构化错误，不无限挂起。
 #
@@ -585,7 +585,10 @@ async def health() -> Dict[str, Any]:
     return out
 
 
-@app.get("/metrics", dependencies=[_rate_limit_dep("metrics")])
+@app.get(
+    "/metrics",
+    dependencies=[_rate_limit_dep("metrics"), Depends(require_metrics_key)],
+)
 async def metrics() -> Dict[str, Any]:
     t0 = time.time()
     out = _summary()
@@ -593,7 +596,10 @@ async def metrics() -> Dict[str, Any]:
     return out
 
 
-@app.get("/metrics/prom", dependencies=[_rate_limit_dep("metrics_prom")])
+@app.get(
+    "/metrics/prom",
+    dependencies=[_rate_limit_dep("metrics_prom"), Depends(require_metrics_key)],
+)
 async def metrics_prom() -> Response:
     """Prometheus 多进程指标端点（生产多 worker 的 scrape target）。"""
     if not _PROM_AVAILABLE:

@@ -117,3 +117,34 @@ def test_run_task_works_without_auth_configured(monkeypatch, _auth_off):
         r = client.post("/run_task", json={"query": "hi"})
     # 未鉴权 → 放行到依赖检查 → 503（而非 401）
     assert r.status_code == 503
+
+
+def test_metrics_requires_key_when_enabled(monkeypatch, _auth_on):
+    """/metrics 与 /metrics/prom：任何有效 Key 可拉取，匿名拒绝。
+
+    取舍：指标是系统级数据（不含租户隔离业务内容），因此不限定单一
+    prometheus Key——业务租户排查自己调用时也需要看指标。
+    /health 系列保持无鉴权（K8s probe 不注入 Key），一并回归。
+    """
+    from fastapi.testclient import TestClient
+
+    with TestClient(api.app) as client:
+        r_no_key = client.get("/metrics")
+        r_ok = client.get("/metrics", headers={"X-API-Key": "key-t2"})
+        r_prom_ok = client.get("/metrics/prom", headers={"X-API-Key": "key-t1"})
+        r_prom_no = client.get("/metrics/prom")
+        r_health = client.get("/health")  # probe 必须免 Key
+
+    assert r_no_key.status_code == 401
+    assert r_ok.status_code == 200
+    assert r_prom_ok.status_code in (200, 503)  # 200 正常；503 仅当 prom 多进程未初始化
+    assert r_prom_no.status_code == 401
+    assert r_health.status_code == 200
+
+
+def test_metrics_open_without_auth_configured(monkeypatch, _auth_off):
+    """未启用鉴权时 /metrics 保持匿名可达（向后兼容回归）。"""
+    from fastapi.testclient import TestClient
+
+    with TestClient(api.app) as client:
+        assert client.get("/metrics").status_code == 200

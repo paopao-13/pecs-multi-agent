@@ -63,3 +63,16 @@ def assert_thread_owner(thread_id: str, tenant: str) -> None:
         return
     if not thread_id.startswith(f"{tenant}-"):
         raise HTTPException(status_code=404, detail="未找到该任务")
+
+
+def require_metrics_key(request: Request) -> str:
+    """FastAPI 依赖：/metrics 与 /metrics/prom 的鉴权。
+
+    取舍：指标是系统级数据（请求计数、P95、token 总量），不含租户隔离的
+    业务内容，因此允许**任何有效 Key** 拉取——Prometheus 专用 Key 与业务
+    Key 均可，租户排查自己调用时也能看。只挡匿名访问（调用量属于运营数据，
+    能反推业务体量）。/health 系列保持无鉴权（K8s probe 不注入 Key）。
+    """
+    if not AUTH_ENABLED:
+        return ANONYMOUS_TENANT
+    return require_api_key(request)

@@ -40,6 +40,8 @@ import sys
 import time
 import threading
 import urllib.request
+
+from dotenv import load_dotenv
 import urllib.error
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field, asdict
@@ -50,6 +52,8 @@ from typing import Any, Dict, List, Optional
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
 sys.path.insert(0, str(_PROJECT_ROOT / "scripts"))
+
+load_dotenv()  # 与 config.py 一致：从项目根 .env 读取 PEC_BENCHMARK_KEY 等配置
 
 # ---- 配置 ----
 BASE_URL = "http://127.0.0.1:8000"
@@ -65,6 +69,18 @@ TASK_QUERIES = [
     "Python 中如何读取一个文本文件？",
 ]
 TIMEOUT_SECONDS = 120  # 单次 /run_task 最长等待
+
+# 基准流量鉴权豁免：服务端开启 PECS_API_KEYS 后，基准请求需带有效 Key 才能通过
+# 鉴权层到达被测逻辑。PEC_BENCHMARK_KEY 与 .env 中 tenant_bench 的 Key 配对；
+# 未配置（鉴权未开启的旧环境）时为空 dict，请求行为与此前完全一致。
+_BENCHMARK_KEY = os.getenv("PEC_BENCHMARK_KEY", "").strip()
+
+
+def _auth_headers() -> dict:
+    """返回带鉴权的额外请求头；未配置基准 Key 时返回空（不改变既有行为）。"""
+    if _BENCHMARK_KEY:
+        return {"X-API-Key": _BENCHMARK_KEY}
+    return {}
 
 # ---- Token 成本单价（¥ / 百万 token）----
 # token 数来自 LLM 网关 usage_metadata（真实返回）；单价为可配置参考值，成本据此推算。
@@ -144,7 +160,7 @@ def http_get(url: str, timeout: float = 5.0) -> LatencySample:
     """发 GET 请求并记录延迟"""
     t0 = time.time()
     try:
-        req = urllib.request.Request(url)
+        req = urllib.request.Request(url, headers=_auth_headers())
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read().decode()
             try:
@@ -183,7 +199,7 @@ def http_post_json(url: str, data: dict, timeout: float = TIMEOUT_SECONDS) -> La
         req = urllib.request.Request(
             url,
             data=payload,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **_auth_headers()},
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -581,7 +597,10 @@ def http_post_raw(url: str, body: bytes, content_type: str, timeout: float = 10.
     t0 = time.time()
     try:
         req = urllib.request.Request(
-            url, data=body, headers={"Content-Type": content_type}, method="POST"
+            url,
+            data=body,
+            headers={"Content-Type": content_type, **_auth_headers()},
+            method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return {"status_code": resp.getcode(), "graceful": resp.getcode() != 500, "error": None}
@@ -729,7 +748,7 @@ def measure_live_metrics() -> Dict[str, Any]:
 # ========== M10: /metrics/prom 端点（Prometheus 多进程指标）==========
 def _get_text(url: str, timeout: float = 5.0) -> "tuple[int, str]":
     """GET 并返回 (status_code, text)，用于非 JSON 的 Prometheus 文本端点。"""
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(url, headers=_auth_headers())
     with urllib.request.urlopen(req, timeout=timeout) as resp:
         return resp.getcode(), resp.read().decode("utf-8", "replace")
 
