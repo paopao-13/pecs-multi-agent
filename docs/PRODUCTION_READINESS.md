@@ -284,7 +284,7 @@ $PY evals/run_eval.py --mode ci
 
 | 缺口 | 现状 | 若要做 |
 |---|---|---|
-| **部署件未实跑** | `Dockerfile` 已对齐 FastAPI 入口，但本机无 Docker，`docker build/run` 从未执行 | CI 加 build job，或借机器验证 `/health` 返回 200 |
+| ~~部署件未实跑~~ **已实跑并修复** | 首次实跑即失败：`python:3.11-slim` 与 lock（生成于 3.13，`scipy==1.18.0` 要求 >=3.12）不兼容，镜像构建不出来 | ✅ 已修（基础镜像改 3.13-slim）+ CI `docker-build` job 持续守护（构建/启动/探活/无凭据断言） |
 | **四角色测试覆盖偏低** | `agents/` 55–74%（依赖真实 LLM，未入门禁） | mock LLM 网关测节点逻辑，覆盖率达 75%+ |
 | **无多副本压测** | 跨进程状态（SQLite）已实现但未在真实多 worker 下压测 | 起 4 worker + 压测，验证限流/熔断计数不放大 |
 | **无持久化审计** | 日志仅 stdout | 接 Loki/ELK + 保留期策略 |
