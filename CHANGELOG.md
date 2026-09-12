@@ -22,6 +22,8 @@
 - **废弃 Flask 演示应用 `scripts/app.py`**（200 行，7 个路由 + `templates/index.html`）：与生产入口 `scripts/api.py`（FastAPI）功能重叠、长期双栈并存，且历史 Dockerfile 曾错指它导致容器健康检查必挂。删除前确认**代码零引用**（仅 `.workbuddy/` 历史评估文档提及），唯一连带文件 `run_demo.py`（仅为废弃界面截图）一并删除。
   替代入口：`python -m uvicorn scripts.api:app --host 127.0.0.1 --port 8000`（`/docs` 交互文档；原 Flask 三视图分别对应 `/run_task`、`run_gaia_official.py`、`run_all_ablation.sh`）。
   注意：`flask` 依赖**保留**——`tools/webshop_server.py` 与 `webshop/` 仍在用。
+- **连带删除 `templates/index.html`**（969 行）：上文"保留"的判断有误——复核后确认它同样是孤儿文件。它调用的 `/api/run_task`、`/api/eval_gaia`、`/api/run_react` 全部是已删除 Flask 应用的路由，且全仓无任何 `render_template` 调用，既无法被渲染、接口也不存在，留在公开仓库只会误导阅读者。`assets/` 下的历史界面截图保留并已在 README 标注为"已废弃界面"。
+  本地 `capture_screenshot.py`（该界面的截图脚本，未被 git 跟踪）随之失去用途，未删除，仅提示可选清理。
 
 ### Fixed
 - **门控数据集在受限网络下无法拉取**：定位并规避 `snapshot_download()` 整仓拉取的两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，跨域重定向**丢掉 `Authorization` 头**，门控文件必然 401；② 119 个文件逐个创建/删除 `.locks`/`*.incomplete`，累计删除次数触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。两者均在 `scripts/download_gaia.py` 与 `datasets/gaia_official_dataset.py` 的文档字符串中记录成因与规避方式。

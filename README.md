@@ -756,9 +756,6 @@ pecs-multi-agent/
 │   ├── traces/             # 单任务全链路日志
 │   └── error_stat.json     # 纠错统计
 │
-├── templates/
-│   └── index.html         # Web 界面
-│
 ├── docs/                  # 工程文档
 │   ├── TECHNICAL_REPORT.md       # 技术报告（设计取舍 / 实验结论 / 局限）
 │   ├── SECURITY_AUDIT.md         # 安全审计报告（含已知逃逸边界）
