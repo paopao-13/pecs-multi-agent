@@ -1,0 +1,47 @@
+# Dependabot 配置
+#
+# 为什么需要：仓库此前只有 secret scanning + push protection（防凭据泄露），
+# 但**依赖漏洞告警与自动安全更新是关闭的**——第三方库出 CVE 时不会被告知，
+# 也不会收到修复 PR。供应链安全是"生产级"的一部分，不能只防自己的代码写错。
+#
+# 设计取舍（避免变成 PR 噪音源）：
+#   - 每周一次、最多同时开 3 个 PR：个人项目不需要每天被依赖更新打扰
+#   - 只做 minor/patch 级别的版本更新，major 升级需要手动评估
+#     （本项目 lock 是 pip freeze 快照，major 跳版可能破坏锁定一致性）
+#   - GitHub Actions 每月检查：工作流用的 action 版本也该跟上
+#
+# ⚠️ 维护提醒：requirements.txt 由 Dependabot 更新后，
+# requirements-lock.txt（pip freeze 快照）**不会自动同步**，需要手动重新
+# freeze 并跑一次全量测试。两者不一致时以 lock 为准（Docker/CI 都用它），
+# 因此收到依赖 PR 后必须：pip install -r requirements.txt && 全量 pytest &&
+# pip freeze > requirements-lock.txt，再合并 PR。
+
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    labels:
+      - "dependencies"
+    ignore:
+      # major 升级需人工评估（可能破坏 API 或与 lock 快照冲突）
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "ci"
+    labels:
+      - "dependencies"
+      - "ci"
