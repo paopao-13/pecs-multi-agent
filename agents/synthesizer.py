@@ -123,7 +123,7 @@ def synthesizer_node(state: dict) -> dict:
 
 请综合以上结果，生成最终答案。答案要直接回应用户的问题。
 """
-            final_answer, token_consumed = call_llm(prompt, SYNTHESIZER_SYSTEM_PROMPT, role="synthesizer")
+            final_answer, token_consumed = _safe_call_llm(prompt, SYNTHESIZER_SYSTEM_PROMPT)
             # LLM 失败时回退到启发式
             if not final_answer or final_answer.startswith("[LLM调用失败]"):
                 llm_error = final_answer or "[LLM调用失败] 空响应"
@@ -186,8 +186,19 @@ def synthesizer_node(state: dict) -> dict:
 
 请综合以上结果，生成最终答案。答案要直接回应用户的问题。
 """
-        final_answer, token_consumed = call_llm(prompt, SYNTHESIZER_SYSTEM_PROMPT, role="synthesizer")
-        logs.append(f"[Synthesizer] 综合完成 (消耗 {token_consumed} tokens)")
+        final_answer, token_consumed = _safe_call_llm(prompt, SYNTHESIZER_SYSTEM_PROMPT)
+
+        # 失败检测：call_llm 不会抛异常，而是返回 [LLM调用失败] 前缀。
+        # 必须显式检查——否则这段失败文本会被当成"最终答案"返回给调用方，
+        # 而下游（评测/用户）无从分辨。另一条 LLM 综合路径已有同样的检查，
+        # 此处此前缺失，两条路径行为不一致（2026-09-12 补）。
+        if not final_answer or final_answer.startswith("[LLM调用失败]"):
+            llm_error = final_answer or "[LLM调用失败] 空响应"
+            final_answer = _emergency_synthesize(query, results)
+            token_consumed = 0
+            logs.append("[Synthesizer] LLM综合失败，紧急拼接可用结果")
+        else:
+            logs.append(f"[Synthesizer] 综合完成 (消耗 {token_consumed} tokens)")
         scheduler_decisions = state.get("scheduler_decisions", [])
 
     # 判断是否需要触发反思循环
@@ -297,6 +308,22 @@ def _generate_reflection(query: str, answer: str, results: list, token_used: int
         reflection_parts.append("上一轮执行基本完成，但答案质量可以提升，请优化执行计划。")
 
     return " | ".join(reflection_parts)
+
+
+def _safe_call_llm(prompt: str, system_prompt: str) -> tuple:
+    """调用 LLM，并把**契约外异常**也收敛成失败前缀。
+
+    call_llm 的契约是"不抛异常，失败返回 [LLM调用失败] 前缀"，调用方只需检查
+    返回值。但 synthesizer 是整条链路的最后一步——它一旦崩掉，前面所有步骤的
+    工作全部作废、任务直接失败。这类"最后一道关口"值得多一层防御：即便上游
+    契约被破坏（SDK 变更、包装器替换），也退化为"本次综合失败 + 走降级路径"。
+
+    返回契约与 call_llm 完全一致：(文本, token数)，便于调用方统一处理。
+    """
+    try:
+        return call_llm(prompt, system_prompt, role="synthesizer")
+    except Exception as exc:
+        return f"[LLM调用失败] {type(exc).__name__}: {exc}", 0
 
 
 def _emergency_synthesize(query: str, results: list) -> str:

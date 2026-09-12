@@ -52,7 +52,19 @@ if RUN_MODE == "business":
 
 
 # 工具执行结果中的错误标记前缀（用于判定执行成功/失败）
-_ERROR_MARKERS = ("错误", "执行错误", "安全检查未通过")
+#
+# ⚠️ 这是一条**双向契约**（tools/wrapper.py 的约束 K1 也依赖它）：
+#   凡是工具失败文案，都必须以本元组中的某个前缀开头；反过来，本元组
+#   也必须覆盖所有失败文案。任一侧漏掉，失败就会被静默判成"成功"。
+#
+# "工具执行失败" 是 2026-09-12 补入的：execute_tool 的**原路径**（wrapper
+# 关闭时）在工具抛异常时返回该文案，但它此前不在本元组里 → is_tool_success
+# 返回 True，进而 executor 记 success=True、步骤置 done、Critic 走"合格"
+# 路径、Planner 不重试 —— **一次工具崩溃被完整地伪装成成功**，最终答案
+# 建立在失败步骤上却全程无人察觉。这类"静默失败"比直接崩溃更危险，因为
+# 崩溃至少会被发现。wrapper 路径的错误文案以 "执行错误：" 开头（已覆盖），
+# 原路径此前是唯一的漏网分支。
+_ERROR_MARKERS = ("错误", "执行错误", "安全检查未通过", "工具执行失败")
 
 
 def is_tool_success(result: str) -> bool:
@@ -98,5 +110,18 @@ def execute_tool(action: str, args: dict, context: dict = None) -> str:
             return f"工具执行失败 [{action}]: {type(e).__name__}: {str(e)}"
 
     # ---- 包装路径：超时 + 异常分类 + 结构化日志 ----
-    result, _error_type, _duration = invoke_tool(tool_fn, action, args, context=context)
-    return result
+    #
+    # 本函数对调用方的契约是「**永不抛异常**，失败以 _ERROR_MARKERS 前缀返回」。
+    # 原路径用 try/except 满足了；包装路径此前只依赖 invoke_tool 的内部实现来
+    # 保证——而 invoke_tool 除"真正执行"外还有若干**辅助动作**（熔断计数
+    # breaker_record_*、结构化日志 log_tool_call、幂等落库 _idempotent_store），
+    # 这些都可能在存储故障时抛异常（如 PEC_SHARED_STATE_DB 指向的 SQLite 被
+    # 锁住/损坏）。一旦如此，异常会直接冒到 executor_node，把"一次工具调用失败"
+    # 升级为"整个任务崩溃"——辅助功能不该有拖垮主流程的能力。
+    #
+    # 这里补上兜底，让契约在两条路径上一致成立（对称性修复）。
+    try:
+        result, _error_type, _duration = invoke_tool(tool_fn, action, args, context=context)
+        return result
+    except Exception as e:
+        return f"工具执行失败 [{action}]: {type(e).__name__}: {str(e)}"

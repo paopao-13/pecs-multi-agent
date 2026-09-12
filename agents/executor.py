@@ -157,11 +157,21 @@ def executor_node(state: dict) -> dict:
     # context 用于结构化日志与权限校验（node_name 决定权限白名单命中）。
     # 工具加固开关（TOOL_WRAPPER_ENABLED 等）默认关闭时，context 不产生任何行为差异，
     # eval 模式（跑评测）因此与改造前逐字一致。
-    result = execute_tool(action, args, context={
-        "thread_id": state.get("thread_id", "-"),
-        "node_name": "executor_node",
-        "iteration": current_idx,
-    })
+    #
+    # 防御性捕获（fail-safe）：execute_tool 的契约是"永不抛异常、失败以错误前缀返回"，
+    # 但 executor 是业务主流程，不应假设上游契约永远成立——工具注册表会被扩展、
+    # 包装器可被替换、辅助动作（熔断计数/结构化日志）也可能因存储故障抛错。
+    # 工具层出问题应该退化为"这一步失败"，而不是把整个任务带崩。
+    # 文案必须以 _ERROR_MARKERS 前缀开头，否则 is_tool_success 会把它判成成功。
+    try:
+        result = execute_tool(action, args, context={
+            "thread_id": state.get("thread_id", "-"),
+            "node_name": "executor_node",
+            "iteration": current_idx,
+        })
+    except Exception as exc:
+        result = f"工具执行失败 [{action}]: {type(exc).__name__}: {str(exc)}"
+        logs.append(f"[Executor] 工具异常已收敛为步骤失败: {type(exc).__name__}")
     executor_tokens += estimate_tokens(result)
 
     # 记录执行结果
