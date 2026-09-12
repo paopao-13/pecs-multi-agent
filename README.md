@@ -763,6 +763,7 @@ pecs-multi-agent/
 │
 ├── scripts/               # 自动化脚本与主入口
 │   ├── api.py                    # FastAPI 服务（/run_task、/metrics、/api/replay、/admin/prompt/*）
+│   ├── readiness_check.sh        # 生产就绪度一键自检（环境/单测门禁/评测门禁）
 │   ├── download_gaia.py          # GAIA 官方数据集本地镜像下载器（绕开 HF 缓存机制）
 │   ├── run_all_ablation.sh       # 一键运行消融实验（6组配置）
 │   ├── run_baseline_compare.sh   # 多框架基线对比
@@ -837,10 +838,12 @@ pecs-multi-agent/
 
 ### P0 — 影响面试直接发挥
 
-| # | 任务 | 为什么做 | 验收标准 |
-|---|---|---|---|
-| 1 | **补 `PRODUCTION_READINESS.md`** | 八项生产就绪能力代码里全有，但缺一处集中说明；面试官不会自己翻代码找 | 八项逐项给出：能力 → 代码位置 → 配置开关 → 验证命令 → 已知边界 |
-| 2 | **打磨面试叙事口径** | 26.4% 不显著这件事必须能主动讲清，而不是被问到时辩解 | 能一句话说清"哪个数字显著、哪个不显著、为什么"，以及"剩下 40 分差在哪" |
+| # | 任务 | 为什么做 | 验收标准 | 状态 |
+|---|---|---|---|---|
+| 1 | ~~补 `PRODUCTION_READINESS.md`~~ | 八项生产就绪能力代码里全有，但缺一处集中说明；面试官不会自己翻代码找 | 八项逐项给出：能力 → 代码位置 → 配置开关 → 验证命令 → 已知边界 | ✅ **已完成** → [`docs/PRODUCTION_READINESS.md`](docs/PRODUCTION_READINESS.md) |
+| 2 | **打磨面试叙事口径** | 26.4% 不显著这件事必须能主动讲清，而不是被问到时辩解 | 能一句话说清"哪个数字显著、哪个不显著、为什么"，以及"剩下 40 分差在哪" | 待做 |
+
+> 生产就绪度已可直接验证：`bash scripts/readiness_check.sh` 一键输出环境现状 + 单测覆盖门禁 + 评测集 ci 档，退出码可用于 CI。
 
 ### P1 — 被追问时能答上
 
@@ -872,6 +875,7 @@ pecs-multi-agent/
 | 文档 | 说明 |
 |------|------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架构设计文档 |
+| [docs/PRODUCTION_READINESS.md](docs/PRODUCTION_READINESS.md) | **生产就绪度清单**（八项逐项：代码位置 / 开关 / 验证命令 / 已知边界） |
 | [docs/TECHNICAL_REPORT.md](docs/TECHNICAL_REPORT.md) | 技术报告（设计取舍 / 实验结论 / 局限） |
 | [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md) | 安全审计报告（含已知逃逸边界与加固路线） |
 | [docs/FAILURE_CASES.md](docs/FAILURE_CASES.md) | 失败案例集（真实 GAIA 失败题 + 修复映射） |
