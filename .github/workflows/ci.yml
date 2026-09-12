@@ -73,3 +73,80 @@ jobs:
         #   python evals/run_eval.py --mode nightly [--limit N]
         # 失败即退出码 1 → PR 变红（对抗与安全类断言零容忍）。
         run: python evals/run_eval.py --mode ci
+
+  # 部署件实跑验证（不需要任何外部机器——runner 预装 Docker）。
+  #
+  # 背景：`Dockerfile` 长期只是"静态核对正确"，从未真实构建过（本机无 Docker）。
+  # 而它历史上曾指向已废弃的 Flask 应用（app:app:5000 + /api/gaia_samples），
+  # 容器能起来但健康检查必失败 —— 部署件一直是坏的且无人发现。
+  # 本 job 把"看起来对"变成"确实能跑"：真实构建 → 安全断言 → 启动 → 探活。
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        # 用 requirements-lock.txt（精确版本快照）构建，保证可复现
+        run: docker build -t pecs:ci .
+
+      - name: Assert .env not baked into image
+        # 安全断言：`COPY . .` 是否把凭据打进镜像层。.dockerignore 已排除 .env，
+        # 但这条断言让它成为"被验证的约束"而非"文档里的承诺"——镜像一旦含密钥，
+        # 推送镜像就等于泄露，且镜像层删除无法真正抹除。
+        run: |
+          if docker run --rm --entrypoint sh pecs:ci -c 'test -f /app/.env'; then
+            echo "::error::镜像内含 .env，凭据已进入镜像层"
+            exit 1
+          fi
+          echo "OK: 镜像内无 .env"
+
+      - name: Start container
+        # 无 LLM Key 也必须能起来：/health 恒返回 200，"依赖未就绪"由
+        # llm_configured / llm_reason 字段单独暴露，探针不会被依赖故障误杀。
+        # PEC_SKIP_LLM_PROBE=1 跳过启动期真实探测，避免无 Key 时白等超时。
+        run: |
+          docker run -d --name pecs -p 8000:8000 \
+            -e PEC_SKIP_LLM_PROBE=1 \
+            -e RUN_MODE=business \
+            pecs:ci
+
+      - name: Wait for /health and verify payload
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8000/health -o /tmp/health.json; then
+              echo "健康检查通过（第 $i 次探测）："
+              cat /tmp/health.json
+              # 断言关键字段存在，避免"200 但响应体不对"的假通过
+              python -c "
+          import json
+          d = json.load(open('/tmp/health.json'))
+          for k in ('status', 'llm_configured', 'run_mode', 'prompt_version'):
+              assert k in d, f'缺少字段 {k}'
+          assert d['run_mode'] == 'business', f\"RUN_MODE 未生效: {d['run_mode']}\"
+          print('OK: /health 字段完整，RUN_MODE=business 已生效')
+          "
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::/health 探测 30 次（约 60s）未通过"
+          docker logs pecs
+          exit 1
+
+      - name: Verify Docker HEALTHCHECK reports healthy
+        # 容器自身的 HEALTHCHECK 指令（interval 30s，需等其跑完一轮）
+        run: |
+          for i in $(seq 1 20); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' pecs)
+            echo "HEALTHCHECK status = $status"
+            [ "$status" = "healthy" ] && exit 0
+            [ "$status" = "unhealthy" ] && echo "::error::容器健康检查失败" && docker logs pecs && exit 1
+            sleep 5
+          done
+          echo "::error::HEALTHCHECK 未在预期时间内转为 healthy"
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        run: docker rm -f pecs || true
