@@ -29,8 +29,35 @@
 
 1. **Python 环境**：项目用 Python ≥ 3.10。确认能 `python --version`。依赖已装（`pip install -r requirements.txt`）；若没装，先装。
 2. **`.env` 已存在**且含有效的 `LLM_API_KEY` / `LLM_BASE_URL` / `LLM_MODEL`（默认 DeepSeek-chat，仓库已验证可跑）。如果 `.env` 不存在，先 `cp .env.example .env` 并让**用户**填入 LLM Key（Key 是秘密，你不要替用户编造）。
-3. **网络与外网**：评测要调真实 LLM API + 拉 HuggingFace 数据集（`gaia-benchmark/GAIA`）。确认能联网。若 HuggingFace 被墙，需用户配 `HF_ENDPOINT` 或代理——这是用户环境问题，你给指引即可，不代执行敏感操作。
-4. **成本预期（务必先告知用户）**：53 题 × 每题多角色多次 LLM 调用，加上若启用多模态/搜索后端都要烧真实 API 额度。一次全量跑可能花几分钟到十几分钟、数元到数十元。先和用户确认再开跑。
+3. **网络与外网（2026-09 实测踩坑，务必先做连通性自检）**：评测要调真实 LLM API + 拉数据集 + **真实网页检索**。前两项通不代表第三项通——实测遇到过"LLM 网关正常、但外网检索全废"的情况，照跑会得出**因网络失败而系统性偏低的无效数字**。
+
+   先跑这条自检（零成本）：
+   ```bash
+   python -c "
+   import requests
+   for name, url in [('LLM 网关', '<你的 LLM_BASE_URL>'), ('DuckDuckGo', 'https://duckduckgo.com'),
+                     ('Wikipedia', 'https://en.wikipedia.org'), ('Tavily', 'https://api.tavily.com')]:
+       try:
+           print(f'{name:12} OK {requests.get(url, timeout=10).status_code}')
+       except Exception as e:
+           print(f'{name:12} FAIL {type(e).__name__}')
+   "
+   ```
+   **判定标准**：`DuckDuckGo` 或 `Wikipedia` 任一项 FAIL，就**不要跑全量**——先解决检索可达性（配 `SEARCH_PROVIDER=tavily` + `SEARCH_API_KEY`，或换网络环境），否则白跑 3 小时拿一个无效数字。
+
+   若 HuggingFace 被墙，需用户配 `HF_ENDPOINT` 或代理；若已配 `PEC_GAIA_LOCAL_DIR` 指向本地镜像（本仓库已就绪），则完全不触碰 HF。这是用户环境问题，你给指引即可，不代执行敏感操作。
+4. **成本预期（务必先告知用户）**：53 题 × 每题多角色多次 LLM 调用，加上若启用多模态/搜索后端都要烧真实 API 额度。标定实测约 **195 秒/题**，53 题全量（仅 PECS）约 **2.9 小时**，加 ReAct 对比约 **5.8 小时**（网络不通时会大量卡满 300s 超时，更慢）。先和用户确认再开跑。
+
+---
+
+## 第零步：备份权威结果（**跳过这步会不可逆地丢数字**）
+
+```bash
+mkdir -p results/backup/pre-$(date +%Y%m%d-%H%M%S)
+cp results/gaia_official_{multi_agent,react,run}.json results/backup/pre-*/
+```
+
+**为什么必须做**：`--num N` 试跑会把 N 题结果**直接写进与权威文件同名的文件**，覆盖 53 题的跑分。实测已踩过一次（3 题跑分把 `gaia_official_multi_agent.json` 覆盖成 3 题版本，靠备份恢复）。备份目录已在 `.gitignore` 中，不会入库。
 
 ---
 
@@ -59,29 +86,38 @@ PEC_SEARCH_API_KEY=<用户提供的 Tavily Key>
 ## 第二步：先小批量冒烟（3 题），确认链路通
 
 ```bash
-python run_gaia_official.py --num 3
+python run_gaia_official.py --num 3 --out results/_calib
 ```
 
-预期：能正常初始化、调 LLM、出结果，不报错退出。若报错：
+> **`--out` 不可省**：不加它，3 题结果会覆写 `results/gaia_official_multi_agent.json`（权威跑分）。加 `--out` 后结果写到临时目录，权威文件零风险。
+
+预期：能正常初始化、调 LLM、出结果，不报错退出。**重点看单题耗时与是否出现"搜索无结果/抓取超时"**：
+- 若每题都卡到 300s 超时且答案为空 → 检索链路不通，回到前置条件第 3 条，**别继续全量**。
 - `ModuleNotFoundError` → 让用户 `pip install -r requirements.txt`。
-- HF 数据集拉不下来 → 让用户配 `HF_ENDPOINT=https://hf-mirror.com` 或代理，然后你重跑。
+- 数据集拉不下来 → 确认 `PEC_GAIA_LOCAL_DIR` 指向本地镜像（`data/gaia/`），或配 `HF_ENDPOINT`。
 - LLM 401/403 → 让用户检查 `LLM_API_KEY`。
-冒烟通过后再跑全量。
+
+冒烟通过（且**检索有真实结果**）后再跑全量。
 
 ---
 
 ## 第三步：全量重跑（拿真实数字）
 
 ```bash
-python run_gaia_official.py
+python run_gaia_official.py --dump-failures
 ```
 
 这会跑 PECS + ReAct 完整对比（默认 `--only all`），结果写入：
 - `results/gaia_official_run.json`（聚合 + McNemar，你要读这个）
 - `results/gaia_official_multi_agent.json`
 - `results/gaia_official_react.json`
+- `results/gaia_failures.json`（`--dump-failures`，PECS 答错的逐题详情）
 
-**耐心等它跑完**，别中途杀进程。
+**只想更新 PECS 数字、省一半时间**：加 `--only multi_agent`（但不产出 McNemar 对比）。
+
+**当前状态（2026-09-12）**：本仓库的权威数字仍是**升级前的 26.4% / 24.5%**——升级后已尝试重跑，但实测本机外网检索不可达（`duckduckgo.com` 与 `en/zh.wikipedia.org` 均超时），此状态下重跑会得到因网络失败而系统性偏低的**无效数字**，故主动中止并保留原数字。README 已如实披露该边界，**不要用无效数字去"更新"它**。
+
+**耐心等它跑完**，别中途杀进程（标定实测约 195s/题）。
 
 ---
 
