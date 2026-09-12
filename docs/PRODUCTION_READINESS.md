@@ -105,18 +105,40 @@ python -m pytest tests/test_wrapper.py tests/test_wrapper_state.py -q -k "idempo
 
 **能力**：LLM 调用失败最多重试 3 次，**指数退避 + 等额抖动（equal jitter）**——抖动是为了避免多任务同时重试造成尖峰（重试风暴）。
 
-**代码位置**：`agents/llm_utils.py`（退避与抖动实现，约 201 行处注释说明 equal jitter）、`config.py:115`（`MAX_RETRIES=3`）
+**错误分类决定"该不该重试"**（实测驱动的改造）：
 
-**配置开关**：`MAX_RETRIES`（3，YAML `execution.max_retries`）
+| 类别 | 状态码 | 行为 |
+|---|---|---|
+| 可重试 | 408 / 409 / 425 / 429 / 500 / 502 / 503 / 504 | 退避后重试，最多 3 次 |
+| 终止 | 400 / 401 / 403 / 404 / 405 / 413 / 415 / 422 | 立即返回，**不白等退避时长** |
+| 终止（关键词兜底） | 余额不足 / 凭据无效 / 上下文超长 / 内容违规 | 同上 |
+| 未知错误 | — | **默认不重试**（宁可少等，不可白等） |
+
+**判定顺序**：显式 HTTP 状态码 → 终止类关键词 → 可重试关键词 → 默认终止。
+
+**代码位置**：`agents/llm_utils.py:classify_llm_error`（分类）、`agents/llm_utils.py`（退避与抖动，约 201 行处说明 equal jitter）、`config.py:115`（`MAX_RETRIES=3`）
+
+**配置开关**：`MAX_RETRIES`（3，YAML `execution.max_retries`）、`PEC_RETRY_CLASSIFY=0`（一键回退旧的纯关键词行为）
 
 **验证命令**
 
 ```bash
-python -m pytest tests/ -q -k "retry or phase0" --basetemp=.pytest_tmp
+python -m pytest tests/test_llm_retry_classify.py -q --basetemp=.pytest_tmp
 ```
 
-**已知边界**（已知不足，见"下一步"）
-当前重试**不区分错误类型**——4xx（参数错误 / 鉴权失败）也会重试 3 次，纯属浪费额度。理想做法是分类：可重试（超时 / 5xx / 429）vs 终止（4xx / 沙箱 / 参数）。这是 README「下一步」P1 的第 5 项。
+**改造前的实测缺陷（已修复，保留记录以便面试时讲清）**
+
+纯关键词子串匹配带来两类错误：
+
+| 场景 | 改造前 | 改造后 |
+|---|---|---|
+| **500 服务端错误** | **一次都不重试**（消息不含关键词）——瞬时故障被当永久故障 | 重试 3 次 |
+| **上下文超长**（含 "limit"） | **重试 3 次**，白等约 56s（8+16+32），而重试必然还是超长 | 立即返回 |
+| **参数名含 limit** | 同样被误判为可重试 | 立即返回 |
+| **余额不足** | 重试 3 次（余额不会自己恢复） | 立即返回 |
+| 401 / 403 / 400 / 422 | 不重试（本来就是对的） | 不重试 |
+
+> 这条改造值得在面试里讲：它不是"加功能"，而是**先用实测数据证伪自己的假设**——我原本以为缺陷是"4xx 也重试"，实测发现恰恰相反（4xx 都不重试），真正的缺陷是"500 不重试 + limit 假阳性"。
 
 ---
 
@@ -252,7 +274,7 @@ $PY -m pytest -q -m "not slow and not requires_api and not requires_api_key" \
 $PY evals/run_eval.py --mode ci
 ```
 
-期望输出：`473 passed` + `覆盖率 ≥ 60%` + `ci 档 22/22 通过`。
+期望输出：`510 passed` + `覆盖率 ≥ 60%` + `ci 档 22/22 通过`。
 
 ---
 

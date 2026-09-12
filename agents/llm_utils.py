@@ -13,6 +13,7 @@ LLM 调用封装
 """
 import json
 import os
+import re
 from typing import Optional
 from langchain_openai import ChatOpenAI
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS
@@ -24,6 +25,109 @@ from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL, LLM_MAX_TOKENS
 # 均已按此前缀识别失败）；此处将其正式化为模块级常量，供下游机读，
 # 避免"文字约定"散落在各处、易漏。
 LLM_FAILURE_PREFIX = "[LLM调用失败]"
+
+
+# ========== 错误分类：该不该重试 ==========
+# 为什么需要分类（实测数据）：
+#   改造前的判断是纯关键词子串匹配（"limit" / "timeout" / "quota" ...），实测发现两个问题——
+#     ① **假阳性**：错误消息里出现 "limit" 就判为可重试。于是"上下文超长"
+#        （maximum context length limit exceeded）和"参数名 limit 非法"都会被重试
+#        3 次，每次退避 8/16/32s，白等约 56 秒——而这两种错误重试必然还是失败。
+#     ② **假阴性**：500 / 502 / 504 这类典型可重试的服务端错误，消息里往往没有
+#        命中关键词，于是**一次都不重试**，瞬时故障被当成永久故障。
+#   改造后：**优先解析显式 HTTP 状态码**，状态码缺失时才走收紧后的关键词兜底。
+#
+# 未知错误为何默认「不重试」：
+#   确定性错误（参数错、模型名错、内容违规）白等 56s 的代价，大于瞬时故障漏重试
+#   的代价（后者可由上层重试或人工兜底）。宁可少等，不可白等——这也是"成本可预测"
+#   的一部分。若需回退到旧的纯关键词行为，设 `PEC_RETRY_CLASSIFY=0`。
+RETRYABLE_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+# 注意：409 只出现在可重试侧（并发冲突，退避后重试有机会成功），
+# 两张码表必须互斥，否则判定结果取决于查表顺序——那是隐藏的 bug 源。
+TERMINAL_STATUS_CODES = frozenset({400, 401, 403, 404, 405, 413, 415, 422})
+
+# 状态码提取：只认带明确引导词的形态，避免把 "128000"（上下文长度）误当状态码。
+#   "Error code: 429" / "status_code=503" / "HTTP 502" / "HTTP/1.1 500"
+_STATUS_CODE_RE = re.compile(
+    r"(?:error[\s_-]*code|status[\s_-]*code|http(?:/[\d.]+)?)[\s:=]*(\d{3})\b",
+    re.IGNORECASE,
+)
+
+# 终止类关键词：出现即不重试（即便同时命中了可重试词，也按终止处理——保守优先，
+# 避免为一个已经确定失败的请求继续等待）。这些是"重试必然无用"的语义。
+_TERMINAL_KEYWORDS = (
+    "insufficient balance",      # 余额耗尽：等到天亮也一样
+    "invalid api key",
+    "incorrect api key",
+    "authentication",
+    "permission denied",
+    "not found",
+    "invalid_request",
+    "invalid request",
+    "context length",            # 上下文超长：同样内容重试必然还是超长
+    "maximum context",
+    "content policy",
+    "content_filter",
+    "safety",
+)
+
+# 可重试关键词（收紧版）：只保留明确的瞬时故障语义。
+# 特别注意 "limit" 被移出——它必须与 "rate"/"requests" 连用才算限流。
+_RETRYABLE_KEYWORDS = (
+    "rate limit",
+    "too many requests",
+    "throttl",
+    "quota exceeded",            # 瞬时配额（常见于 429），等一会儿可能恢复
+    "timeout",
+    "timed out",
+    "connection reset",
+    "connection refused",
+    "connection aborted",
+    "connection error",
+    "temporarily unavailable",
+    "service unavailable",
+    "server error",
+    "internal error",
+    "bad gateway",
+    "gateway timeout",
+    "overloaded",
+    "try again",
+)
+
+
+def classify_llm_error(exc: BaseException) -> str:
+    """判断 LLM 异常该不该重试，返回 "retryable" 或 "terminal"。
+
+    判定顺序（顺序本身是设计的一部分）：
+      1. 显式 HTTP 状态码 → 按码表判定（最可靠，优先）
+      2. 终止类关键词 → terminal（保守优先：与可重试词同时命中时也判终止）
+      3. 可重试关键词 → retryable
+      4. 都没命中 → terminal（未知错误不赌，避免白等退避时长）
+    """
+    if os.getenv("PEC_RETRY_CLASSIFY", "1") == "0":
+        # 回退：旧行为（纯关键词子串匹配），便于出问题时一键回到改造前
+        text = str(exc).lower()
+        legacy = ("rate", "429", "quota", "too many", "throttl", "limit",
+                  "timeout", "connection", "temporarily", "unavailable")
+        return "retryable" if any(kw in text for kw in legacy) else "terminal"
+
+    text = f"{type(exc).__name__}: {exc}".lower()
+
+    match = _STATUS_CODE_RE.search(text)
+    if match:
+        code = int(match.group(1))
+        if code in RETRYABLE_STATUS_CODES:
+            return "retryable"
+        if code in TERMINAL_STATUS_CODES:
+            return "terminal"
+        # 其他 3 位码（如 301/302）不属于已知语义 → 落到关键词兜底
+
+    if any(kw in text for kw in _TERMINAL_KEYWORDS):
+        return "terminal"
+    if any(kw in text for kw in _RETRYABLE_KEYWORDS):
+        return "retryable"
+    return "terminal"
+
 
 
 class LLMInvocationError(RuntimeError):
@@ -188,13 +292,12 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
 
         except Exception as e:
             last_error = f"{type(e).__name__}: {str(e)}"
-            error_str = str(e).lower()
-            # 限流/速率限制/服务暂不可用 → 等待后重试
-            is_rate_limit = any(kw in error_str for kw in [
-                "rate", "429", "quota", "too many", "throttl", "limit",
-                "timeout", "connection", "temporarily", "unavailable"
-            ])
-            if is_rate_limit and attempt < max_retries - 1:
+            # 错误分类决定是否值得重试（详见 classify_llm_error 的注释）：
+            # 终止类（4xx / 余额不足 / 上下文超长 / 内容违规）立即返回，
+            # 不再为注定失败的请求白等 8/16/32s 退避。
+            if classify_llm_error(e) != "retryable":
+                break
+            if attempt < max_retries - 1:
                 import random as _random
 
                 base = 8 * (2 ** attempt)  # 8s, 16s, 32s（比原 15/30/60 更温和）
@@ -210,7 +313,7 @@ def call_llm(prompt: str, system_prompt: str = "", role: str = "default") -> tup
                     break
                 _time.sleep(wait)
                 continue
-            # 非限流错误或重试耗尽，直接返回失败
+            # 重试次数耗尽
             break
 
     return f"{LLM_FAILURE_PREFIX} {last_error}", 0
