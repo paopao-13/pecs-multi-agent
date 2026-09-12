@@ -51,6 +51,8 @@ results/*.json
 !results/webshop_react_light.json
 !results/production_bench.json
 results/traces/
+# 跑分备份（本地存档，用于跑分事故恢复；体积随跑分次数增长，不入库）
+results/backup/
 results/ckpt*.db
 results/checkpoints.sqlite
 results/*.sqlite
