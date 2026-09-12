@@ -23,13 +23,20 @@ from config import MAX_RETRIES
 
 
 @pytest.fixture(autouse=True)
-def _no_sleep(monkeypatch):
-    """屏蔽退避等待（否则每个重试用例会真等 8/16/32 秒）。
+def _isolate_env(monkeypatch):
+    """隔离环境依赖：屏蔽退避等待 + 假装已配置 LLM Key。
 
-    注意：llm_utils 内部是函数级 `import time as _time`，拿到的是同一个
-    time 模块对象，因此 patch 模块属性即可生效。
+    两个都必须做，缺一个就会"本地过、CI 挂"：
+      1. 退避等待：llm_utils 内部是函数级 `import time as _time`，拿到的是同一个
+         time 模块对象，因此 patch 模块属性即可生效。（否则每个重试用例真等
+         8/16/32 秒。）
+      2. LLM_API_KEY：call_llm 在 Key 为空时会**直接返回模拟响应**，根本不进入
+         重试循环（`if not LLM_API_KEY: return _mock_llm_response(...)`）。
+         本地有 .env 所以能过，CI 没有 .env 就拿到 0 次调用而失败。
+         这里显式给一个假 Key —— get_llm 已被 mock，不会有任何真实请求。
     """
     monkeypatch.setattr(time, "sleep", lambda s: None)
+    monkeypatch.setattr(lu, "LLM_API_KEY", "test-key-not-real")
 
 
 def _invoke_with_error(msg: str, monkeypatch) -> int:
