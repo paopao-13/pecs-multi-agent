@@ -4,11 +4,21 @@
 # 与真实服务（scripts/api.py 的 FastAPI，8000 端口）完全脱节 —— 容器能起来但
 # 健康检查必失败，等于部署件一直是坏的。现全部对齐 FastAPI 服务。
 #
+# 2026-09-12 修正：基础镜像从 python:3.11-slim 改为 **python:3.13-slim**。
+#   原因（CI 的 docker-build job 实跑发现，该 job 因此第一次运行即失败）：
+#   requirements-lock.txt 是在 Python 3.13 环境下 freeze 的精确快照，其中
+#   scipy==1.18.0 的 Requires-Python 为 >=3.12，在 3.11 上根本不满足 →
+#   `pip install -r requirements-lock.txt` 直接报
+#   "No matching distribution found for scipy==1.18.0"，镜像永远构建不出来。
+#   教训：lock 文件带 Python 版本特异性，基础镜像必须与生成 lock 的环境一致。
+#   （requirements.txt / pyproject 里写的 >=3.10 只是顶层依赖下界的声明，
+#     不代表锁定快照在 3.10/3.11 上可安装。）
+#
 # 构建：docker build -t pecs:local .
 # 运行：docker run --rm -p 8000:8000 pecs:local
 # 验证：curl -sf localhost:8000/health
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 

@@ -8,6 +8,12 @@
 # 注意：本快照来自开发环境 venv，未包含 gunicorn（本地用 uvicorn 启动）。
 # 若需 gunicorn 多 worker 部署，先在同环境 pip install gunicorn 后重新 freeze。
 # WebShop 第三方环境的锁定见 requirements-webshop-lock.txt。
+#
+# ⚠️ Python 版本要求：本快照生成于 **Python 3.13**，含版本敏感包
+#   （如 scipy==1.18.0 要求 Requires-Python >=3.12）。用它复现环境时
+#   必须使用 Python 3.13，否则 pip 会因 "No matching distribution" 直接失败。
+#   Dockerfile 的基础镜像与此保持一致（python:3.13-slim）——CI 的
+#   docker-build job 正是在这里第一次实跑时发现了 3.11 与 lock 不兼容。
 
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.3
