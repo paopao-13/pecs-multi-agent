@@ -35,16 +35,18 @@ from config import DEFAULT_TOKEN_BUDGET
 from agents.llm_utils import set_deterministic_mode
 
 
-def _dump_failures(path: str = "results/gaia_failures.json") -> None:
+def _dump_failures(out_dir: str = "results", path: str = None) -> None:
     """把 PECS 在官方 53 题上答错的逐题详情导出，供失败案例分析（docs/FAILURE_CASES.md）。
 
-    数据来源：evaluate_gaia_official 已把逐题 details 存到 results/gaia_official_multi_agent.json。
+    数据来源：evaluate_gaia_official 已把逐题 details 存到
+    <out_dir>/gaia_official_multi_agent.json。
     本函数只做筛选 + 脱敏截断，不重新调用 LLM。
     """
     import json as _json
     import os as _os
 
-    src = "results/gaia_official_multi_agent.json"
+    src = _os.path.join(out_dir, "gaia_official_multi_agent.json")
+    path = path or _os.path.join(out_dir, "gaia_failures.json")
     if not _os.path.exists(src):
         print(f"[dump-failures] 未找到 {src}，请先跑全量对比评测")
         return
@@ -88,7 +90,18 @@ def main():
                              "原 120s 会系统性误杀；详见 benchmarks/gaia_official.py 顶部说明）")
     parser.add_argument("--dump-failures", action="store_true",
                         help="评测后把 PECS 答错的逐题详情（问题/预测/gold/token/耗时）导出到 results/gaia_failures.json，用于失败案例分析")
+    parser.add_argument("--out", default=None,
+                        help="输出目录（默认 results/）。**小样本试跑务必指定**："
+                             "默认目录下会覆写与权威跑分同名的文件（--num 3 会把 53 题的 "
+                             "gaia_official_multi_agent.json 覆盖成 3 题版本）。"
+                             "例：--num 3 --out results/_calib")
     args = parser.parse_args()
+
+    # 输出目录经环境变量传给 benchmarks.gaia_eval.save_results（不改函数签名）
+    if args.out:
+        os.environ["PEC_GAIA_OUTPUT_DIR"] = args.out
+        print(f"[输出目录] 结果将写入 {args.out}/（权威文件不受影响）")
+    out_dir = args.out or "results"
 
     # 可复现：固定所有角色 temperature=0，确保准确率数字可 defense（消除 Planner/Synthesizer 随机性）
     set_deterministic_mode()
@@ -97,9 +110,9 @@ def main():
     if args.only == "all":
         # 完整对比 + McNemar
         summary = run_official_comparison(args.num, args.budget)
-        print("\n聚合结果已保存到 results/gaia_official_run.json")
+        print(f"\n聚合结果已保存到 {out_dir}/gaia_official_run.json")
         if args.dump_failures:
-            _dump_failures()
+            _dump_failures(out_dir)
     else:
         # 单独跑
         result = evaluate_gaia_official(

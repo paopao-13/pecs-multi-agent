@@ -530,9 +530,18 @@ def evaluate_answer(predicted: str, ground_truth: str) -> bool:
 
 
 def save_results(result: dict, filename: str) -> None:
-    """保存评估结果到文件"""
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    filepath = os.path.join(RESULTS_DIR, filename)
+    """保存评估结果到文件。
+
+    输出目录可用环境变量 PEC_GAIA_OUTPUT_DIR 覆盖（由 run_gaia_official.py
+    的 --out 设置）。**为什么需要这个**：默认写入 results/ 下与权威结果同名的
+    文件，因此 `--num 3` 这类小样本试跑会直接覆写 53 题的权威跑分文件——
+    实测踩过一次（靠备份恢复）。用 --out 指定临时目录即可安全标定。
+
+    未设置该变量时行为与此前完全一致（写 RESULTS_DIR）。
+    """
+    out_dir = os.getenv("PEC_GAIA_OUTPUT_DIR") or RESULTS_DIR
+    os.makedirs(out_dir, exist_ok=True)
+    filepath = os.path.join(out_dir, filename)
     with open(filepath, "w", encoding="utf-8") as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
     print(f"结果已保存到 {filepath}")

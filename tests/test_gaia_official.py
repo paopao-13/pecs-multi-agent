@@ -333,3 +333,46 @@ class TestRunWithDeadline:
         result, error = _run_with_deadline(boom, 5)
         assert result is None
         assert isinstance(error, ValueError)
+
+
+class TestSaveResultsOutputDir:
+    """save_results 的输出目录覆盖（--out 的底层机制）。
+
+    背景：`--num 3` 试跑会覆写与权威跑分同名的文件，实测踩过一次
+    （53 题的 gaia_official_multi_agent.json 被覆盖成 3 题版本，靠备份恢复）。
+    --out 通过 PEC_GAIA_OUTPUT_DIR 把结果导到临时目录，杜绝该事故。
+    """
+
+    def test_default_writes_to_results_dir(self, tmp_path, monkeypatch):
+        from benchmarks import gaia_eval
+
+        monkeypatch.delenv("PEC_GAIA_OUTPUT_DIR", raising=False)
+        monkeypatch.setattr(gaia_eval, "RESULTS_DIR", str(tmp_path))
+        gaia_eval.save_results({"accuracy": 0.5}, "gaia_official_multi_agent.json")
+        assert (tmp_path / "gaia_official_multi_agent.json").exists()
+
+    def test_env_override_redirects_output(self, tmp_path, monkeypatch):
+        """设置 PEC_GAIA_OUTPUT_DIR 后写入该目录，RESULTS_DIR 不被触碰。"""
+        from benchmarks import gaia_eval
+
+        real_dir = tmp_path / "results"
+        calib_dir = tmp_path / "calib"
+        real_dir.mkdir()
+        monkeypatch.setattr(gaia_eval, "RESULTS_DIR", str(real_dir))
+        monkeypatch.setenv("PEC_GAIA_OUTPUT_DIR", str(calib_dir))
+
+        gaia_eval.save_results({"accuracy": 0.33}, "gaia_official_multi_agent.json")
+
+        assert (calib_dir / "gaia_official_multi_agent.json").exists()
+        assert not (real_dir / "gaia_official_multi_agent.json").exists(), (
+            "权威结果目录必须不被写入——这正是 --out 要防的覆写事故"
+        )
+
+    def test_env_empty_falls_back_to_results_dir(self, tmp_path, monkeypatch):
+        """空字符串等同于未设置（避免 --out '' 把结果写到当前目录）。"""
+        from benchmarks import gaia_eval
+
+        monkeypatch.setattr(gaia_eval, "RESULTS_DIR", str(tmp_path))
+        monkeypatch.setenv("PEC_GAIA_OUTPUT_DIR", "")
+        gaia_eval.save_results({"accuracy": 0.1}, "x.json")
+        assert (tmp_path / "x.json").exists()
