@@ -28,11 +28,17 @@ jobs:
         run: python scripts/benchmark_production.py --ci
 
       - name: Upload benchmark report
+        # 上传是"辅助产物"，不该有阻断 CI 的能力：实测 GitHub 的
+        # ArtifactService 偶发超时（Request timeout after 5 attempts）会让整个
+        # job 变红，而测试步骤其实是过的 —— 那是把"GitHub 存储服务是否可用"
+        # 混进了"代码是否通过门禁"。CI 门禁只应对代码问题负责。
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: production-bench
           path: results/production_bench.json
+          if-no-files-found: warn
 
   unit-test:
     runs-on: ubuntu-latest
