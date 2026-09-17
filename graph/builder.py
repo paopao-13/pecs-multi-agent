@@ -246,7 +246,8 @@ def build_graph(token_budget: int = DEFAULT_TOKEN_BUDGET, checkpointer=None):
     return compiled
 
 
-def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristics: bool = True) -> AgentState:
+def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristics: bool = True,
+                         thread_id: str = "-") -> AgentState:
     """
     创建初始状态
 
@@ -255,6 +256,9 @@ def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, u
 
     参数:
         use_heuristics: 是否启用启发式规划/综合（成本消融时设为 False 以测量纯 LLM 消耗）
+        thread_id: 会话/租户标识（约定 "<tenant>-<后缀>"）。它决定幂等键的隔离维度，
+            必须由调用方从真实来源透传（API 侧是 RunTaskRequest.thread_id）。
+            留空/None 时归一为 "-"，即匿名语义，与改造前逐字一致。
 
     返回:
         AgentState Pydantic 实例（兼容字典式访问）
@@ -263,6 +267,7 @@ def create_initial_state(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, u
         query=query,
         token_budget=token_budget,
         use_heuristics=use_heuristics,
+        thread_id=thread_id or "-",
     )
 
 
@@ -284,15 +289,19 @@ def run_task(query: str, token_budget: int = DEFAULT_TOKEN_BUDGET, use_heuristic
     if checkpoint_db:
         with SqliteSaver.from_conn_string(checkpoint_db) as saver:
             compiled_graph = build_graph(token_budget, checkpointer=saver)
-            # 创建初始状态
-            initial_state = create_initial_state(query, token_budget, use_heuristics=use_heuristics)
+            # 创建初始状态（thread_id 必须注入：它是幂等键的隔离维度）
+            initial_state = create_initial_state(query, token_budget, use_heuristics=use_heuristics,
+                                                 thread_id=thread_id or "-")
             # 执行图（进程被杀也不丢进度；下次用同一 thread_id 续跑）
             config = {"configurable": {"thread_id": thread_id}} if thread_id else None
             final_state = compiled_graph.invoke(initial_state, config)
         return final_state
     else:
         compiled_graph = build_graph(token_budget)
-        initial_state = create_initial_state(query, token_budget, use_heuristics=use_heuristics)
+        # 无 checkpoint 分支同样要注入：这条路径不传 config，若不注入则
+        # executor 读到的 thread_id 恒为 "-"，幂等隔离形同虚设。
+        initial_state = create_initial_state(query, token_budget, use_heuristics=use_heuristics,
+                                             thread_id=thread_id or "-")
         return compiled_graph.invoke(initial_state)
 
 

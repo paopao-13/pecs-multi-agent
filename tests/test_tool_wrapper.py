@@ -462,3 +462,85 @@ class TestPermissionWhitelist:
         assert error_type == ToolErrorType.PERMISSION_DENIED
         assert calls == []
 
+
+
+# ============================================================
+# 【真实链路】幂等缓存的租户/会话隔离（端到端）
+# ============================================================
+
+class TestIdempotentIsolationEndToEnd:
+    """端到端验证：不同 thread_id 的只读工具调用**不会**共享缓存。
+
+    为什么需要这一层：已有的幂等用例直接构造 `context={"thread_id": "t1"}`，
+    验证的是"给定 thread_id 时 wrapper 正确"；但生产缺陷恰恰是"thread_id 没
+    传进 state"（见 tests/test_thread_id_propagation.py）。本节从
+    create_initial_state → executor_node → wrapper 走完整链路。
+
+    ⚠️ 实现坑（踩过）：开关分散在**两个模块**，且不是各自一份副本——
+      - `tools/__init__.py` 持有 `TOOL_WRAPPER_ENABLED`（决定是否走 wrapper 路径）
+      - `tools/wrapper.py` 持有 `TOOL_IDEMPOTENT_ENABLED`（决定是否启用缓存）
+      两者都从 config 导入。只开后者而没开前者，`execute_tool` 仍走原路径，
+      缓存根本不生效——那会让"每次都真实执行"被误读成"隔离生效"（假阳性）。
+      另注意：`tools.wrapper` **没有** `TOOL_WRAPPER_ENABLED` 属性
+      （monkeypatch.setattr 对不存在的属性会直接报错，别想当然地写）。
+    """
+
+    @pytest.fixture
+    def isolated_cache(self, monkeypatch):
+        """开启 wrapper + 幂等，注册计数 fake 只读工具，返回调用计数器。"""
+        import tools
+        import tools.wrapper as w
+
+        monkeypatch.setattr(tools, "TOOL_WRAPPER_ENABLED", True)
+        monkeypatch.setattr(w, "TOOL_IDEMPOTENT_ENABLED", True)
+
+        calls = {"n": 0}
+
+        def fake_readonly(args: dict) -> str:
+            calls["n"] += 1
+            return f"result#{calls['n']}"
+
+        monkeypatch.setitem(tools.TOOL_REGISTRY, "fake_ro", fake_readonly)
+        monkeypatch.setattr(w, "READ_ONLY_TOOLS",
+                            frozenset(set(w.READ_ONLY_TOOLS) | {"fake_ro"}))
+        return calls
+
+    @staticmethod
+    def _run_once(thread_id: str) -> str:
+        from agents.executor import executor_node
+        from graph.builder import create_initial_state
+
+        st = create_initial_state("q", thread_id=thread_id)
+        st.plan = [{
+            "id": 1, "action": "fake_ro", "description": "只读检索",
+            "args": {"query": "同一份内部文档"}, "status": "pending",
+            "result": None, "retry_count": 0, "risk": "low", "depends_on": [],
+        }]
+        executor_node(st)
+        return st.results[0]["result"]
+
+    def test_different_threads_do_not_share_cache(self, isolated_cache):
+        """两个租户同参数 → 各自真实执行，不得命中对方缓存。"""
+        a = self._run_once("tenant_a-111")
+        b = self._run_once("tenant_b-222")
+        assert a != b, f"跨租户串味：A 与 B 都得到 {a!r}"
+        assert isolated_cache["n"] == 2
+
+    def test_same_thread_hits_cache(self, isolated_cache):
+        """同一租户重复调用 → 命中自己的缓存，不再真实执行。"""
+        first = self._run_once("tenant_a-111")
+        n_after_first = isolated_cache["n"]
+        second = self._run_once("tenant_a-111")
+        assert second == first
+        assert isolated_cache["n"] == n_after_first, "同一会话同参数应命中缓存"
+
+    def test_anonymous_threads_share_dash_keyspace(self, isolated_cache):
+        """对照组：thread_id 都为 '-' 时共享键空间（这正是修复前的串味行为）。
+
+        保留这条断言是为了把"缺陷长什么样"钉在测试里——一旦有人回退修复，
+        其他用例会拿到对方的缓存，这里会立刻变红。
+        """
+        a = self._run_once("-")
+        b = self._run_once("-")
+        assert a == b
+        assert isolated_cache["n"] == 1, "匿名请求共享 '-' 键空间（历史行为）"

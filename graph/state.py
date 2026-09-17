@@ -55,6 +55,16 @@ class AgentState(BaseModel):
     """
     # ===== 输入 =====
     query: str = ""                                     # 用户的原始问题
+    # 会话/租户隔离标识，来自 RunTaskRequest.thread_id，经 create_initial_state 注入。
+    #
+    # 为什么必须是 state 字段而不是只在 config 里：Executor 的 execute_tool context
+    # 从这里取值，进而决定幂等键 `thread_id|工具|参数哈希` 的隔离维度。此前该字段缺失，
+    # state.get() 静默返回默认值 "-" → 所有任务的幂等键退化成同一个 → 不同租户的相同
+    # 查询命中同一缓存（跨租户串味）。详见 tests/test_thread_id_propagation.py。
+    #
+    # 默认 "-" 而非 None：① 匿名请求保持与改造前逐字一致；② 旧 checkpoint 缺该字段时
+    # Pydantic 用默认值反序列化，不报错；③ 避免键里出现 None。
+    thread_id: str = "-"
 
     # ===== Planner 输出 =====
     plan: List[Dict[str, Any]] = Field(default_factory=list)    # 分解后的执行计划（步骤列表）

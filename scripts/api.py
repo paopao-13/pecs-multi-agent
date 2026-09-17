@@ -558,7 +558,10 @@ def _execute_graph_inner(
     from graph.builder import build_graph, create_initial_state  # 延迟导入
     from metrics.cost_attribution import attribute_cost  # 延迟导入
 
-    initial_state = create_initial_state(query, token_budget)
+    # thread_id 必须注入初始 state：它经 executor 传给工具 context，决定幂等键
+    # `thread_id|工具|参数哈希` 的隔离维度。此前未注入，导致所有任务的幂等键
+    # 退化成同一个（跨租户/跨会话串味）。不传 thread_id 的匿名请求归一为 "-"。
+    initial_state = create_initial_state(query, token_budget, thread_id=thread_id or "-")
 
     if thread_id:
         from langgraph.checkpoint.sqlite import SqliteSaver

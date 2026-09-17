@@ -26,6 +26,28 @@
   本地 `capture_screenshot.py`（该界面的截图脚本，未被 git 跟踪）随之失去用途，未删除，仅提示可选清理。
 
 ### Fixed
+- **幂等缓存跨租户串味（静默缺陷，2026-09-17）**：`tools/wrapper.py:idempotency_key` 设计为
+  `thread_id | 工具名 | 参数哈希`，注释承诺"不同 thread_id 之间不串味""键里天然带租户边界"。
+  但 `thread_id` **从未进入 `AgentState`** —— `agents/executor.py` 取的
+  `state.get("thread_id", "-")` 因字段缺失恒返回 `"-"`，所有任务的幂等键退化成
+  `-|工具|参数哈希`：**不同租户/会话的相同查询会命中同一个缓存**（跨租户数据串味）。
+  - 根因：`RunTaskRequest.thread_id`（真值）只进了 LangGraph 的 `config["configurable"]`
+    （供 checkpoint 持久化），而 `executor_node(state)` 签名没有 config 参数，只能从 state
+    取值 → 真值与消费方从未交汇。`AgentState.get()` 是 `getattr(self, key, default)`，
+    缺字段**静默返回**默认值，不报错（与"工具异常被误判成功"同属静默失败模式）。
+  - 影响面（精确收敛）：仅 5 类只读工具（search/web_browse/file_read/file_parse/multimodal）
+    的缓存；权限按 node_name、熔断按 action **均不受影响**；结构化日志仅 thread 维度退化。
+  - 触发门槛：`RUN_MODE=business`（自动开 `TOOL_IDEMPOTENT_ENABLED`）+ 多租户同参调用只读
+    工具；`PEC_SHARED_STATE_DB` 会把串味从单进程放大到跨 worker。默认 eval 下开关为 false，
+    故此前未实际爆发——属"埋着的雷"。
+  - 为何此前未发现：所有幂等用例**硬编码** `context={"thread_id": "t1"}`，绕过 state 取值
+    断点（验证的是"给定 thread_id 时 wrapper 正确"，缺陷是"thread_id 没传进 state"）。
+  - 修复：`AgentState` 新增 `thread_id: str = "-"`；`create_initial_state` 加形参，并在
+    `graph/builder.py` 两条分支与 `scripts/api.py` 透传。匿名请求仍为 `"-"`，
+    **eval 模式行为逐字不变**（GAIA/WebShop 跑分可比性不受影响）。
+  - 验证：新增 `tests/test_thread_id_propagation.py`（真链路，修复前必然失败）与
+    `tests/test_tool_wrapper.py::TestIdempotentIsolationEndToEnd`（端到端隔离 + 匿名共享
+    对照组，把"缺陷长什么样"钉在测试里）。全量 532 → 542 passed。
 - **门控数据集在受限网络下无法拉取**：定位并规避 `snapshot_download()` 整仓拉取的两个坑——① `HF_ENDPOINT` 指向镜像时 `/resolve/` 会 308 跳回 `huggingface.co`，跨域重定向**丢掉 `Authorization` 头**，门控文件必然 401；② 119 个文件逐个创建/删除 `.locks`/`*.incomplete`，累计删除次数触发宿主环境的**批量删除保护**（阈值 50/轮）而被中断。两者均在 `scripts/download_gaia.py` 与 `datasets/gaia_official_dataset.py` 的文档字符串中记录成因与规避方式。
 - **🔴 `.docx`/`.pptx` 静默解析失败（既有缺陷，非 P0 回归）**：旧的分发只有 pdf/xlsx/csv/image，Office Open XML 落到 `_parse_text` 回退 → **直接吐 ZIP 二进制**（`PK\x03\x04…`）。工具返回 success，LLM 却拿到乱码，属于**静默错误**。修复后实测：GAIA 的 `.docx` 读出 65 段含 `Gift Assignments` 表格，`.pptx` 读出 8 页（crayfish / nematodes / isopods / eels / Yeti crab / Spider crab…）。
 - **🔴 数据目录被路径守卫静默拒解析（实测导致附件子集 0 分）**：`FORBIDDEN_PREFIXES` 含 `C:\Users`，而 Windows 上用户数据（含 HuggingFace 默认缓存 `~\.cache`，还命中「隐藏文件」规则）就在其下。实证：历史 GAIA 官方 53 题的 **11 道附件题全部 0 分**，预测文本原话为「所有尝试读取附件…均因权限限制而失败（错误：禁止访问系统敏感路径）」——**26.4% 完全来自 42 道无附件题（14/42 = 33.3%）**。修复路径：数据放到非禁区目录（本地镜像在 `D:`），或经 `PEC_DATA_ALLOW_DIR` 显式豁免。⚠️ 该发现意味着 26.4% 是「附件链路带 bug」下的数字，重跑后预计上升；**数字本身暂不更新，待实测重跑后再统一修订。**

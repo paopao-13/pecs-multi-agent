@@ -10,7 +10,7 @@
 |:-:|---|:-:|---|
 | 1 | 超时控制 | ✅ | 工具 15s / 任务 300s / LLM 调用 120s 三层，全部有显式数值 |
 | 2 | 成本上限 | ✅ | 50000 token 硬封顶 + 70/85/95% 三级降级，ReAct 侧无上限作为对照 |
-| 3 | 幂等 | ✅ | 只读工具按 `thread_id+工具+参数哈希` 缓存；跨进程可选共享 |
+| 3 | 幂等 | ✅ | 只读工具按 `thread_id+工具+参数哈希` 缓存；跨进程可选共享（2026-09-17 修复了 thread_id 未注入 state 导致的跨租户串味，见第 3 节） |
 | 4 | 重试 | ✅ | 最多 3 次，指数退避 + 等额抖动（jitter），避免重试风暴 |
 | 5 | 限流 | ✅ | 令牌桶，超限返回 429（非 500），支持跨进程共享计数 |
 | 6 | 审计日志 | ✅ | 结构化 JSON 日志 + trace_id 全链路贯穿 + 入参摘要脱敏 |
@@ -86,6 +86,29 @@ python -m pytest tests/test_token_budget.py -q --basetemp=.pytest_tmp
 
 **幂等键**：`thread_id | 工具名 | 参数哈希(SHA1 前 16 位)`
 
+> **2026-09-17 修复：此前这个键的租户隔离是失效的。**
+>
+> `idempotency_key` 的注释一直承诺"不同 thread_id 之间不串味""键里天然带租户边界"，
+> 但 `thread_id` **从未真正进入 `AgentState`**——`agents/executor.py` 取的是
+> `state.get("thread_id", "-")`，而 `AgentState` 没有该字段 → 恒为 `"-"`
+> → 所有任务的幂等键退化成 `-|工具|参数哈希`，**不同租户的相同查询会命中同一个缓存
+> （跨租户数据串味）**。
+>
+> 根因链路：`RunTaskRequest.thread_id`（真值）只被塞进 LangGraph 的
+> `config["configurable"]`（供 checkpoint 持久化），而 `executor_node(state)` 的
+> 签名没有 config 参数，节点内只能从 state 取值 → 真值与消费方从未交汇。
+> `AgentState.get()` 实现为 `getattr(self, key, default)`，缺字段**静默返回默认值**，
+> 不报错——与本项目此前修复的"工具异常被误判成功"同属静默失败模式。
+>
+> 为何此前没被发现：① `TOOL_IDEMPOTENT_ENABLED` 默认 `false`，eval 模式完全静默；
+> ② 所有幂等用例**硬编码** `context={"thread_id": "t1"}`，绕过了 state 取值断点
+> （验证的是"给定 thread_id 时 wrapper 正确"，而缺陷是"thread_id 没传进 state"）。
+>
+> 修复：`AgentState` 新增 `thread_id: str = "-"` 字段，经 `create_initial_state`
+> 透传（`graph/builder.py` 两条分支 + `scripts/api.py`）。回归保护见
+> `tests/test_thread_id_propagation.py`（真链路）与
+> `tests/test_tool_wrapper.py::TestIdempotentIsolationEndToEnd`（端到端隔离）。
+
 **代码位置**：`tools/wrapper.py:idempotency_key` / `_idempotent_lookup` / `_idempotent_store`、`tools/wrapper_state.py`（跨进程实现，复用 `idem_cache` 表）
 
 **配置开关**：`TOOL_IDEMPOTENT_ENABLED`（默认 `false`）、`PEC_SHARED_STATE_DB`（设则跨进程共享）、`PEC_IDEM_TTL_SEC`（共享模式 TTL，默认 600）
@@ -93,7 +116,16 @@ python -m pytest tests/test_token_budget.py -q --basetemp=.pytest_tmp
 **验证命令**
 
 ```bash
+# 单元层（wrapper 内部契约）
 python -m pytest tests/test_wrapper.py tests/test_wrapper_state.py -q -k "idempot" --basetemp=.pytest_tmp
+
+# 真链路：create_initial_state → AgentState → executor_node → 工具 context
+# 这条最重要——历史上的 bug 恰恰出在"thread_id 没传进 state"，
+# 而只测 wrapper 的用例（硬编码 context）永远抓不到。
+python -m pytest tests/test_thread_id_propagation.py -q --basetemp=.pytest_tmp
+
+# 端到端隔离：不同 thread_id 不共享缓存、同一 thread_id 命中缓存
+python -m pytest tests/test_tool_wrapper.py -q -k "IsolationEndToEnd" --basetemp=.pytest_tmp
 ```
 
 **已知边界**

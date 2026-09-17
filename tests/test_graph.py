@@ -178,3 +178,19 @@ def test_route_after_executor_skips_low_risk_critic_when_budget_tight():
     }
     result = route_after_executor(state)
     assert result == "synthesizer"
+
+
+def test_create_initial_state_thread_id():
+    """thread_id 必须能注入初始状态——它是幂等键的隔离维度。
+
+    回归保护：此前 AgentState 无该字段，executor 取到恒定 "-"，导致不同租户的
+    幂等键退化成同一个（跨租户数据串味）。详见 tests/test_thread_id_propagation.py。
+    """
+    from graph.builder import create_initial_state
+
+    # 显式传入 → 原样保留
+    assert create_initial_state("q", thread_id="tenant-x").thread_id == "tenant-x"
+    # 不传 → 匿名语义 "-"（与改造前逐字一致）
+    assert create_initial_state("q").thread_id == "-"
+    # 显式 None → 归一为 "-"，避免键里出现 None
+    assert create_initial_state("q", thread_id=None).thread_id == "-"
