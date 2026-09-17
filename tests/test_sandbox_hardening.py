@@ -10,6 +10,7 @@
 
 每个用例都对应一次真实复现，不是理论防护。
 """
+import importlib.util
 import re
 import sys
 import threading
@@ -19,6 +20,15 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from tools.python_repl import python_repl
+
+# pandas 在沙箱里是**可选**预导入（`_build_safe_globals` 里 ImportError 就跳过）——
+# 项目的 requirements 并不包含它，CI 环境只有 numpy。因此涉及 pandas 的
+# **内存计算**用例需要按可用性跳过；而 IO 拦截用例不需要（AST 检查只看语法，
+# 不依赖库是否安装，pd.read_csv 在无 pandas 的环境同样会被拦）。
+_NEEDS_PANDAS = pytest.mark.skipif(
+    importlib.util.find_spec("pandas") is None,
+    reason="环境未安装 pandas（沙箱对 pandas 的支持是可选能力）",
+)
 
 # 注意：`import tools.python_repl as X` 取到的是**函数**而非模块 ——
 # tools/__init__.py 里的 `from tools.python_repl import python_repl` 会让
@@ -63,9 +73,9 @@ class TestLibraryIOBlocked:
     @pytest.mark.parametrize(
         "code,expect",
         [
-            ('print(pd.DataFrame({"a":[1,2]}).a.sum())', "3"),
-            ('print(pd.DataFrame({"a":[1]}).to_dict())', "{'a': {0: 1}}"),
-            ('print(pd.DataFrame({"a":[1]}).a.to_list())', "[1]"),
+            pytest.param('print(pd.DataFrame({"a":[1,2]}).a.sum())', "3", marks=_NEEDS_PANDAS),
+            pytest.param('print(pd.DataFrame({"a":[1]}).to_dict())', "{'a': {0: 1}}", marks=_NEEDS_PANDAS),
+            pytest.param('print(pd.DataFrame({"a":[1]}).a.to_list())', "[1]", marks=_NEEDS_PANDAS),
             ('print(np.array([1,2,3]).sum())', "6"),
             ('print(math.sqrt(144))', "12.0"),
         ],
