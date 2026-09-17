@@ -17,7 +17,6 @@ import pytest
 import tools as tools_pkg
 from tools import _ERROR_MARKERS, is_tool_success
 from tools.content_pipeline import (
-    CONTENT_PIPELINE_DESCRIPTIONS,
     CONTENT_PIPELINE_TOOLS,
     ab_select,
     batch_generate,
@@ -30,13 +29,12 @@ _CONTENT_TOOL_NAMES = ("generate_content", "batch_generate", "llm_judge", "ab_se
 
 
 def _registry_in_subprocess(mode: str) -> dict:
-    """在干净子进程中导入 tools，返回内容工具的注册与描述情况。"""
+    """在干净子进程中导入 tools，返回内容工具的注册情况（K4 门禁）。"""
     code = (
         "import json, tools;"
         "names=['generate_content','batch_generate','llm_judge','ab_select'];"
         "print(json.dumps({"
         "'registered': {n: (n in tools.TOOL_REGISTRY) for n in names},"
-        "'described': {n: (n in tools.TOOL_DESCRIPTIONS) for n in names},"
         "'registry_size': len(tools.TOOL_REGISTRY)}))"
     )
     env = dict(os.environ)
@@ -80,7 +78,6 @@ class TestRegistryGating:
     def test_business_mode_registers_all_four(self):
         info = _registry_in_subprocess("business")
         assert info["registered"] == {n: True for n in _CONTENT_TOOL_NAMES}
-        assert info["described"] == {n: True for n in _CONTENT_TOOL_NAMES}
         # 8 个原有工具 + 4 个内容工具
         assert info["registry_size"] == 12
 
@@ -88,9 +85,6 @@ class TestRegistryGating:
         info = _registry_in_subprocess("")
         assert info["registered"] == {n: False for n in _CONTENT_TOOL_NAMES}
         assert info["registry_size"] == 8
-
-    def test_tools_and_descriptions_are_paired(self):
-        assert set(CONTENT_PIPELINE_TOOLS.keys()) == set(CONTENT_PIPELINE_DESCRIPTIONS.keys())
 
 
 # ============================================================

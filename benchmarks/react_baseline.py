@@ -10,7 +10,7 @@ ReAct = Reasoning + Acting，是最常见的单 Agent 范式。
 """
 import json
 from agents.llm_utils import call_llm
-from tools import execute_tool, TOOL_DESCRIPTIONS
+from tools import execute_tool
 from graph.token_budget import estimate_tokens
 from config import DEFAULT_TOKEN_BUDGET
 

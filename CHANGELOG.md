@@ -19,6 +19,25 @@
 - **Prompt 版本注册表与运行时回滚**（`tools/prompt_registry.py`）：覆盖式设计——代码内基线不动，`prompts/v{N}/<role>.txt` 存在时按角色覆盖。`POST /admin/prompt/rollback?target=v{N}` 运行时即时切换（重启回落 `PEC_PROMPT_VERSION`），`/admin/prompt/status` 查看各角色来源，`/health` 暴露当前版本。管理端点仅限 `PEC_ADMIN_TENANTS` 租户。诚实边界：灰度为进程粒度流量切分，无按请求概率灰度。
 
 ### Removed
+- **删除死代码 `TOOL_DESCRIPTIONS` 及其配套描述字典**（2026-09-17）：`tools/__init__.py` 里
+  的 `TOOL_DESCRIPTIONS`（8 条工具描述）**从未被任何代码消费**——`agents/planner.py`
+  与 `benchmarks/react_baseline.py` 都只 import 不使用，属纯死代码；`tools/content_pipeline.py`
+  的 `CONTENT_PIPELINE_DESCRIPTIONS` 唯一用途就是并入它，故一并删除。
+  - **为什么不改成"接入 prompt 成为单一来源"**：它的措辞与 `PLANNER_SYSTEM_PROMPT` 里的
+    工具说明**并不一致**（例：它是"输入查询关键词，返回搜索结果摘要"，prompt 里是
+    "查找实时信息"），且 prompt 还含 python 的 ⚠️ 规则块等额外内容。强行接入会**改变
+    prompt 内容** → 改变 LLM 规划行为 → 破坏 GAIA/WebShop 跑分的可比性；要做到逐字一致
+    则需让两份文本严格同步，维护成本高于收益。收益不抵风险，故直接删除。
+  - **真正的问题不是"少了一份描述"，而是"改它毫无作用"**：留着会形成维护陷阱——后来者
+    改了这个字典，以为 Planner 的行为会变，实际什么都不会发生。删除后在
+    `tools/__init__.py` 就地写明工具清单的两份"真相"及其各自职责（`TOOL_REGISTRY` 决定
+    "能否被执行"、`PLANNER_SYSTEM_PROMPT` 决定"是否被 LLM 看到"），消除歧义。
+  - 连带改动：`agents/planner.py` 与 `benchmarks/react_baseline.py` 删除未使用的 import；
+    `tests/test_content_pipeline.py` 移除 `described` 探测与"描述配对"用例（其断言对象
+    已不存在），K4 注册门禁用例（本进程 + 子进程 registry_size = 8/12）**全部保留且通过**。
+  - 验证：全量 542 → 541 passed（减少的 1 例即被删除的配对用例），覆盖率 63%；另在真实
+    `RUN_MODE=business` 下实测——开关自动开启（wrapper/幂等/熔断均 True）、工具注册数
+    仍为 12（8 + 4 内容工具）、租户隔离生效（A/B 各自真实执行、A 重复调用命中自身缓存）。
 - **废弃 Flask 演示应用 `scripts/app.py`**（200 行，7 个路由 + `templates/index.html`）：与生产入口 `scripts/api.py`（FastAPI）功能重叠、长期双栈并存，且历史 Dockerfile 曾错指它导致容器健康检查必挂。删除前确认**代码零引用**（仅 `.workbuddy/` 历史评估文档提及），唯一连带文件 `run_demo.py`（仅为废弃界面截图）一并删除。
   替代入口：`python -m uvicorn scripts.api:app --host 127.0.0.1 --port 8000`（`/docs` 交互文档；原 Flask 三视图分别对应 `/run_task`、`run_gaia_official.py`、`run_all_ablation.sh`）。
   注意：`flask` 依赖**保留**——`tools/webshop_server.py` 与 `webshop/` 仍在用。

@@ -216,9 +216,3 @@ CONTENT_PIPELINE_TOOLS = {
     "ab_select": ab_select,
 }
 
-CONTENT_PIPELINE_DESCRIPTIONS = {
-    "generate_content": "内容生成工具。输入主题与风格，生成一条营销文案。适用于AI内容生成任务。",
-    "batch_generate": "批量内容生成工具。输入条目列表与预算，批量生成并展示预算分配与降级。适用于规模化内容生产。",
-    "llm_judge": "LLM自动评测工具。输入文案，返回多维评分（准确性/一致性/完整性/可读性）。适用于内容质量把关。",
-    "ab_select": "A/B选优工具。输入多个候选文案，按评测分数选优。适用于文案迭代择优。",
-}

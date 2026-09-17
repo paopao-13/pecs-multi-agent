@@ -28,27 +28,26 @@ TOOL_REGISTRY = {
     "webshop": webshop_select,
 }
 
-# 工具描述（供 Planner 了解可用工具）
-TOOL_DESCRIPTIONS = {
-    "search": "Web搜索工具。输入查询关键词，返回搜索结果摘要。适用于需要查找实时信息、事实性问题。",
-    "web_browse": "网页浏览工具。输入网页URL，返回页面正文内容。适用于需要从特定网页提取信息的任务。",
-    "python": "Python代码执行工具。输入Python代码字符串，返回执行结果。适用于计算、数据处理、逻辑推理。",
-    "file_read": "文件读取工具。输入文件路径，返回文件内容。适用于读取本地文档、配置文件。",
-    "file_parse": "文件解析工具。输入文件路径，自动识别PDF/Excel/CSV/图片格式并提取内容。适用于GAIA文件处理任务。",
-    "multimodal": "多模态附件处理工具。输入图片/音频/视频路径，返回识别出的文本（需配置PEC_VISION_*后端）。适用于GAIA多模态附件任务。",
-    "api_call": "通用API调用工具。输入URL和参数，返回响应内容。适用于调用外部API获取数据。",
-    "webshop": "WebShop商品选择工具。输入购物需求和可选商品目录，返回最匹配商品。适用于购物导航任务。",
-}
+# 工具清单的两份"真相"及各自职责（2026-09-17 清理后明确）：
+#   ① `TOOL_REGISTRY`（本文件）：决定"哪些工具能被**执行**"——execute_tool 按它分派。
+#   ② `agents/planner.py` 的 `PLANNER_SYSTEM_PROMPT`：决定"哪些工具**被 LLM 看到**"。
+# 两者需手工保持一致；`agents/planner.py` 的 `allowed_actions` 会在运行时过滤白名单外的
+# action（LLM 幻觉出的工具被静默丢弃，这是刻意的安全设计）。
+#
+# ⚠️ 这里原本有一份 `TOOL_DESCRIPTIONS` 字典，已于 2026-09-17 删除，原因：
+#   - 它**从未被任何代码消费**（planner.py 只 import 不用、react_baseline.py 亦然），
+#     属纯死代码；
+#   - 它的措辞与 prompt 里的工具说明**并不一致**（例：这里是"输入查询关键词，返回搜索
+#     结果摘要"，prompt 里是"查找实时信息"），留着反而形成"改它就能影响 Planner"的
+#     维护陷阱——实际改了毫无作用；
+#   - 唯一可行的替代（让 Planner prompt 从它渲染）会**改变 prompt 内容**，进而改变
+#     LLM 规划行为，破坏 GAIA/WebShop 跑分的可比性。收益不抵风险，故直接删除。
 
 # 【约束 K4】内容生成 Pipeline 工具仅在 RUN_MODE=business 时注册，
 # 保证 eval 模式（GAIA / WebShop 评测）的可用工具集与改造前完全一致。
 if RUN_MODE == "business":
-    from tools.content_pipeline import (  # noqa: E402 - 需在注册表定义后就地合并
-        CONTENT_PIPELINE_DESCRIPTIONS,
-        CONTENT_PIPELINE_TOOLS,
-    )
+    from tools.content_pipeline import CONTENT_PIPELINE_TOOLS  # noqa: E402 - 需在注册表定义后就地合并
     TOOL_REGISTRY.update(CONTENT_PIPELINE_TOOLS)
-    TOOL_DESCRIPTIONS.update(CONTENT_PIPELINE_DESCRIPTIONS)
 
 
 # 工具执行结果中的错误标记前缀（用于判定执行成功/失败）
