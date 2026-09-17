@@ -45,6 +45,38 @@
   本地 `capture_screenshot.py`（该界面的截图脚本，未被 git 跟踪）随之失去用途，未删除，仅提示可选清理。
 
 ### Fixed
+- **沙箱三处高危问题（2026-09-17，均由实测坐实）**：`tools/python_repl.py` 的防护此前只覆盖
+  **builtins 面**，存在三个同源缺陷。
+  - **A. 库级文件 IO 逃逸（可读写任意文件）**：AST 黑名单拦得住 `open()`，但沙箱预导入的
+    `pandas`/`numpy` **自带文件读写能力**——实测 `pd.read_csv("C:/Windows/win.ini")` 成功读出
+    系统文件内容、`df.to_csv(...)` 文件真的落地（同期 `open()` 对照被正确拦截）。配合
+    `pd.read_pickle`（pickle 反序列化）可构成 RCE 链。
+    修复：新增 `FORBIDDEN_IO_ATTRS` + `read_*` 前缀规则，并让 `visit_Call` 与
+    `visit_Attribute` **共用同一判据函数** `_is_forbidden_io_attr`（避免两处规则漂移——
+    本项目已有"契约单侧失效"的先例）；从白名单移除纯 IO 库 `openpyxl`。
+    **刻意不按 `to_*` 前缀拦**：`to_dict`/`to_list` 是内存转换，按前缀拦会把正常计算一并堵死。
+  - **B. 并发竞态（输出串味）**：输出捕获依赖替换进程级 `sys.stdout`，而 executor 用线程池
+    并发。实测：短任务 8 并发 0 串味（窗口太小，**不足以证明安全**），拉长执行窗口后
+    **4/8 串味**——错误数据会被当作工具结果喂给 LLM。
+    修复：改为向沙箱 globals 注入**写往本次调用局部 buffer** 的 `print`
+    （`_make_buffer_print`），输出捕获不再依赖任何全局状态。
+  - **C. 死循环导致线程泄漏 + stdout 永久劫持**：`while True: pass` 时 `exec` 永不返回 →
+    `finally` 永不执行 → `sys.stdout` 永久指向那个 `StringIO`。实测确认：20s 不返回、
+    `sys.stdout` 类型仍是 `StringIO`、**连主线程的 print 都被吞掉**（进程失去输出能力、
+    日志静默失效），线程永久占用。
+    修复：新增子进程执行路径（`tools/_sandbox_runner.py`），用 `subprocess.run(timeout=)`
+    实现**真正的强制终止**——这是唯一可行方案，因为 CPython 无法强杀线程。
+    实测：死循环 5.0s 被终止、**线程数 1→1（无泄漏）**、`sys.stdout` 保持正常、
+    内存膨胀型循环同样被终止。进程内执行作为降级保留
+    （`PEC_SANDBOX_PROCESS_ISOLATION=0`），此时安全策略不变、仅失去可中断能力。
+  - **附带修复一个既有缺陷**：`__builtins__` 白名单从不含 `__import__`，导致 numpy 的
+    惰性导入失败——`np.array([1,2,3]).sum()` 报 `KeyError: '__import__'`（实测在**改动前的
+    进程内模式同样复现，非本次引入**）。现补入**受限 `__import__`**：按模块根名白名单放行，
+    仅供库内部惰性导入；用户显式调用 `__import__("os")` 仍被 AST 层拦截。
+  - 新增 `tests/test_sandbox_hardening.py`（19 例）锁定三个场景 + 误伤验证。
+    新增配置：`PEC_SANDBOX_TIMEOUT`（默认 15s）、`PEC_SANDBOX_PROCESS_ISOLATION`（默认 1）。
+    代价：每次沙箱调用约 +0.3~0.5s（子进程启动），全量测试 20s → 43s。
+    全量 541 → 560 passed。
 - **幂等缓存跨租户串味（静默缺陷，2026-09-17）**：`tools/wrapper.py:idempotency_key` 设计为
   `thread_id | 工具名 | 参数哈希`，注释承诺"不同 thread_id 之间不串味""键里天然带租户边界"。
   但 `thread_id` **从未进入 `AgentState`** —— `agents/executor.py` 取的
