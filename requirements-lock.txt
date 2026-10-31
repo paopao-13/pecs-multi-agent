@@ -116,7 +116,7 @@ pyee==13.0.1
 Pygments==2.21.0
 PyMatting==1.1.15
 pymupdf==1.28.0
-pypdf==6.14.2
+pypdf==6.21.4
 pypdfium2==5.12.1
 pyphen==0.17.2
 pytest==9.1.1
