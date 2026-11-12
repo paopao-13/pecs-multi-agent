@@ -110,7 +110,7 @@ tensorboard==2.20.0
 tensorboard-data-server==0.7.2
 threadpoolctl==3.6.0
 tifffile==2025.12.20
-torch==2.7.1+cu118
+torch==2.13.0
 torchaudio==2.7.1+cu118
 torchvision==0.22.1+cu118
 tqdm==4.66.1
