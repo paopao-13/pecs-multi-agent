@@ -79,7 +79,7 @@ lazy-loader==0.5
 llvmlite==0.48.0
 lxml==6.1.1
 MarkupSafe==3.0.3
-multidict==6.8.0
+multidict==6.9.1
 multiprocess==0.70.19
 mypy_extensions==1.1.0
 networkx==3.6.1
