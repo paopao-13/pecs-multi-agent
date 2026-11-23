@@ -95,7 +95,7 @@ pywin32==306
 PyYAML==6.0
 qudida==0.0.4
 questionary==2.0.1
-requests==2.27.1
+requests==2.33.0
 rich==14.2.0
 ruamel.yaml==0.19.1
 scikit-image==0.24.0

@@ -132,7 +132,7 @@ rank-bm25==0.2.2
 referencing==0.37.0
 regex==2026.7.10
 rembg==2.0.77
-requests==2.34.2
+requests==2.33.0
 requests-toolbelt==1.0.0
 rpds-py==2026.6.3
 scikit-image==0.26.0
