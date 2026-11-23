@@ -72,7 +72,7 @@ PyAutoGUI==0.9.54
 pycocotools==2.0.11
 pygame-ce==2.5.7
 PyGetWindow==0.0.9
-Pygments==2.19.2
+Pygments==2.20.0
 PyMsgBox==1.0.9
 pynput==1.7.6
 pyparsing==3.3.1
