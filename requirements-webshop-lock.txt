@@ -57,7 +57,7 @@ numpy==1.26.2
 onnx==1.14.0
 onnxruntime==1.23.2
 onnxsim==0.4.36
-opencv-python==4.5.5.62
+opencv-python==4.8.1.78
 opencv-python-headless==4.11.0.86
 opensimplex==0.4.5.1
 orjson==3.9.10
