@@ -147,7 +147,7 @@ tifffile==2026.7.14
 tiktoken==0.13.0
 tinycss2==1.5.1
 tinyhtml5==2.1.0
-tqdm==4.68.4
+tqdm==4.66.3
 typing-inspection==0.4.2
 typing_extensions==4.16.0
 tzdata==2026.3
